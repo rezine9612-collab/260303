@@ -1131,7 +1131,8 @@ html.npReport-scope {
     const raw = sessionStorage.getItem("np_report_json");
     if(raw){
       try{
-        const obj = JSON.parse(raw);
+        const obj0 = JSON.parse(raw);
+        const obj = (obj0 && typeof obj0==='object' && obj0.report && typeof obj0.report==='object') ? obj0.report : obj0;
         window.report = obj;
         window.DEV_REPORT = obj;
         if(!window.REPORT) window.REPORT = obj;
@@ -1949,7 +1950,8 @@ return legacy;
     if(raw && el){
       el.textContent = raw;
       try{
-        const obj = JSON.parse(raw);
+        const obj0 = JSON.parse(raw);
+        const obj = (obj0 && typeof obj0==='object' && obj0.report && typeof obj0.report==='object') ? obj0.report : obj0;
         window.report = obj;
         window.DEV_REPORT = obj;
         if(!window.REPORT) window.REPORT = obj;
@@ -5016,20 +5018,38 @@ boot()
 } // end window.renderNeuPrint
 
 ;(function () {
+  function normalizeReport(obj){
+    if(!obj || typeof obj !== 'object') return null;
+
+    // Common API envelope: { ok, extraction, report, report_raw }
+    if(obj.report && typeof obj.report === 'object') return obj.report;
+
+    // Some builds use { output: {...report...} }
+    if(obj.output && typeof obj.output === 'object') return obj.output;
+
+    // Sometimes nested under { data: ... }
+    if(obj.data && typeof obj.data === 'object'){
+      const nested = normalizeReport(obj.data);
+      if(nested) return nested;
+    }
+
+    return obj;
+  }
+
   function getReportData(){
     try{
       if(typeof window !== 'undefined' && window.REPORT && typeof window.REPORT === 'object'){
-        return window.REPORT;
+        return normalizeReport(window.REPORT);
       }
-    const el = document.getElementById('dev-report-json');
-    if(el && el.textContent){
-      return JSON.parse(el.textContent);
+      const el = document.getElementById('dev-report-json');
+      if(el && el.textContent){
+        return normalizeReport(JSON.parse(el.textContent));
+      }
+    }catch(e){
+      NP_DEBUG && console.error('[NeuPrint] Failed to load report data', e);
     }
-}catch(e){
-NP_DEBUG && console.error('[NeuPrint] Failed to load report data', e);
-}
-return null;
-}
+    return null;
+  }
 function run() {
   const data = getReportData() || window.report || window.DEV_REPORT || null
   if (data) {
