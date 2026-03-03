@@ -1741,7 +1741,9 @@ legacy.assessment_id = meta.verification_id || meta.assessment_id || '';
 
 legacy.hero =  {
 
-  decision_compression_quote: meta.decision_compression_quote || '',
+  // "전달값 체크" 기준: decision_compression_quote는 TOP-LEVEL.
+  // (호환: meta.decision_compression_quote도 fallback)
+  decision_compression_quote: (r.decision_compression_quote != null ? r.decision_compression_quote : (meta.decision_compression_quote || '')),
   chips:  {
 
     rsl_level: chips.rsl_level_short_name || '',
@@ -1975,7 +1977,7 @@ try {
   [
   'meta.verify_url',
   'meta.verification_id',
-  'meta.decision_compression_quote',
+  'decision_compression_quote',
   'chips.rsl_level_short_name',
   'chips.cff_final_type_chip_label',
   'chips.rsl_fri_score',

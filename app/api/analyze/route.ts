@@ -13,15 +13,37 @@ function mergeReport(extraction: any, derived: any, inputText: string) {
     out.rsl = out.rsl || {};
     out.rsl.summary = extraction.rsl.summary;
   }
+  // "전달값 체크" 기준: rsl.summary는 항상 존재하도록 기본값을 둔다.
+  if (!out?.rsl?.summary) {
+    out.rsl = out.rsl || {};
+    out.rsl.summary = { one_line: '', paragraph: '' };
+  }
   if (Array.isArray(extraction?.rsl?.dimensions)) {
     out.rsl = out.rsl || {};
     out.rsl.dimensions = extraction.rsl.dimensions;
   }
-  if ('decision_compression_quote' in (extraction || {})) {
-    // report.html expects this under meta.decision_compression_quote
-    out.meta = out.meta || {};
-    out.meta.decision_compression_quote = extraction.decision_compression_quote;
+  // "전달값 체크" 기준: rsl.dimensions는 항상 8개 형태를 유지하는 것이 안전하다.
+  if (!Array.isArray(out?.rsl?.dimensions) || out.rsl.dimensions.length === 0) {
+    out.rsl = out.rsl || {};
+    out.rsl.dimensions = [
+      { code: 'R1', label: 'Interpretation', score_1to5: 0, observation: '' },
+      { code: 'R2', label: 'Issue Decomposition', score_1to5: 0, observation: '' },
+      { code: 'R3', label: 'Evidence Quality', score_1to5: 0, observation: '' },
+      { code: 'R4', label: 'Reasoning & Counterfactuals', score_1to5: 0, observation: '' },
+      { code: 'R5', label: 'Coherence & Clarity', score_1to5: 0, observation: '' },
+      { code: 'R6', label: 'Metacognition & Self-repair', score_1to5: 0, observation: '' },
+      { code: 'R7', label: 'Ethical / Societal Framing', score_1to5: 0, observation: '' },
+      { code: 'R8', label: 'Perspective Flexibility', score_1to5: 0, observation: '' }
+    ];
   }
+  // "전달값 체크" 기준: decision_compression_quote는 TOP-LEVEL.
+  // (호환을 위해 meta.decision_compression_quote도 함께 유지)
+  const dcq = (extraction && typeof extraction === 'object' && 'decision_compression_quote' in extraction)
+    ? extraction.decision_compression_quote
+    : '';
+  out.decision_compression_quote = (dcq == null) ? '' : dcq;
+  out.meta = out.meta || {};
+  out.meta.decision_compression_quote = out.decision_compression_quote;
 
   // Minimal meta defaults for report.html (safe if already present)
   out.meta = out.meta || {};
