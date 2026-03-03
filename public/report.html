@@ -1132,9 +1132,12 @@ html.npReport-scope {
     if(raw){
       try{
         const obj = JSON.parse(raw);
-        window.report = obj;
-        window.DEV_REPORT = obj;
-        if(!window.REPORT) window.REPORT = obj;
+        const normalized = (obj && typeof obj==='object' && obj.report && typeof obj.report==='object') ? obj.report
+          : (obj && typeof obj==='object' && obj.output && typeof obj.output==='object') ? obj.output
+          : obj;
+        window.report = normalized;
+        window.DEV_REPORT = normalized;
+        if(!window.REPORT) window.REPORT = normalized;
       }catch(_e){}
     }
   }catch(_e){}
@@ -1788,7 +1791,7 @@ legacy.cff.observed_patterns =  {
 };
 
 const labels = Array.isArray(cff.labels) ? cff.labels : [];
-const vals01 = Array.isArray(cff.values_0to1) ? cff.values_0to1 : [];
+const vals01 = Array.isArray(cff.values_0to1) ? cff.values_0to1 : (Array.isArray(cff.values) ? cff.values : []);
 const indArr = [];
 const indObj =  {
 
@@ -1950,9 +1953,12 @@ return legacy;
       el.textContent = raw;
       try{
         const obj = JSON.parse(raw);
-        window.report = obj;
-        window.DEV_REPORT = obj;
-        if(!window.REPORT) window.REPORT = obj;
+        const normalized = (obj && typeof obj==='object' && obj.report && typeof obj.report==='object') ? obj.report
+          : (obj && typeof obj==='object' && obj.output && typeof obj.output==='object') ? obj.output
+          : obj;
+        window.report = normalized;
+        window.DEV_REPORT = normalized;
+        if(!window.REPORT) window.REPORT = normalized;
       }catch(_e){
         // leave as-is; renderer may show missing-data warnings
       }
@@ -2295,144 +2301,6 @@ if (!REPORT)  {
   return
 
 }
-
-function normalizeReportToLegacy(input) {
-  if (!input) return input;
-
-  // Unwrap envelope shapes: { ok, report, report_raw, extraction }
-  const src = (input && typeof input === 'object' && input.report && (input.ok === true || input.ok === false))
-    ? input.report
-    : (input && typeof input === 'object' && input.data && input.data.report ? input.data.report : input);
-
-  // If it already has legacy hero.chips, keep as is.
-  const hasLegacyHero = !!(src && src.hero && src.hero.chips);
-  const hasDeriveChips = !!(src && src.chips);
-
-  const meta = (src && src.meta) ? src.meta : {};
-  const cffSrc = (src && src.cff) ? src.cff : {};
-  const rcSrc = (src && src.rc) ? src.rc : {};
-  const rslSrc = (src && src.rsl) ? src.rsl : {};
-  const rfsSrc = (src && src.rfs) ? src.rfs : {};
-  const chipsSrc = hasDeriveChips ? src.chips : (hasLegacyHero ? (src.hero.chips || {}) : {});
-
-  // Build role fit track scores from rfs.top_groups when present
-  let trackScores = null;
-  if (rfsSrc && Array.isArray(rfsSrc.top_groups) && rfsSrc.top_groups.length) {
-    trackScores = {};
-    rfsSrc.top_groups.forEach((g) => {
-      if (!g) return;
-      const name = String(g.group_name || g.name || '').trim();
-      const pct = Number(g.percent);
-      if (name) trackScores[name] = Number.isFinite(pct) ? pct : (g.percent || 0);
-    });
-  }
-
-  const finalType = (cffSrc && cffSrc.final_type) ? cffSrc.final_type : {};
-  const finalLabel = String(
-    chipsSrc.cff_final_type_chip_label ||
-    chipsSrc.determination ||
-    finalType.chip_label ||
-    finalType.label ||
-    cffSrc.final_determination_label ||
-    ''
-  ).trim();
-
-  const friVal = (chipsSrc.rsl_fri_score != null)
-    ? Number(chipsSrc.rsl_fri_score)
-    : Number(rslSrc?.fri?.score ?? rslSrc?.fri_score ?? rslSrc?.fri ?? 0);
-
-  const rslLevelVal = String(
-    chipsSrc.rsl_level_short_name ||
-    chipsSrc.rsl_level ||
-    rslSrc?.level?.short_name ||
-    rslSrc?.overall_level_display ||
-    ''
-  ).trim();
-
-  const controlVal = String(
-    chipsSrc.rc_final_determination ||
-    chipsSrc.control ||
-    rcSrc?.control_pattern ||
-    ''
-  ).trim();
-
-  const roleFitVal = String(
-    chipsSrc.rfs_top_group_name ||
-    chipsSrc.role_fit ||
-    (rfsSrc && Array.isArray(rfsSrc.top_groups) && rfsSrc.top_groups[0] ? (rfsSrc.top_groups[0].group_name || '') : '') ||
-    ''
-  ).trim();
-
-  const decisionQuote = String(
-    (src && src.decision_compression_quote) ||
-    meta.decision_compression_quote ||
-    (src.hero ? (src.hero.decision_compression_quote || src.hero.decision_quote || src.hero.decisionQuote) : '') ||
-    ''
-  ).trim();
-
-  // If already legacy, just ensure hero fields exist and enrich cff + role_fit
-  const out = hasLegacyHero ? src : {
-    ...src,
-    meta,
-    hero: {
-      ...(src.hero || {}),
-      decision_compression_quote: decisionQuote,
-      chips: {
-        fri: Number.isFinite(friVal) ? friVal : 0,
-        rsl_level: rslLevelVal,
-        determination: finalLabel,
-        control: controlVal,
-        role_fit: roleFitVal,
-        confidence_index: (finalType && finalType.confidence != null) ? finalType.confidence : null,
-      },
-    },
-  };
-
-  // Enrich CFF to legacy keys expected by the template
-  const cff = (out && out.cff) ? out.cff : {};
-  const final_determination = (cff && typeof cff.final_determination === 'object' && cff.final_determination)
-    ? cff.final_determination
-    : {
-      label: finalType.label || finalLabel,
-      type_confidence: (finalType && finalType.confidence != null) ? finalType.confidence : null,
-      interpretation: finalType.interpretation || '',
-    };
-
-  out.cff = {
-    ...cff,
-    final_determination,
-    final_determination_label: cff.final_determination_label || finalType.label || finalLabel,
-    final_determination_type_confidence:
-      cff.final_determination_type_confidence ??
-      (finalType && finalType.confidence != null ? finalType.confidence : null),
-    final_determination_explanation:
-      cff.final_determination_explanation ||
-      finalType.interpretation ||
-      final_determination.interpretation ||
-      '',
-  };
-
-  // Provide role_fit section from rfs when present
-  if (!out.role_fit) {
-    out.role_fit = {};
-  }
-  if (rfsSrc) {
-    out.role_fit.recommended_roles_line = out.role_fit.recommended_roles_line || rfsSrc.recommended_roles_line || '';
-    out.role_fit.recommended_roles_top3 = out.role_fit.recommended_roles_top3 || rfsSrc.recommended_roles_top3 || [];
-    out.role_fit.track_scores = out.role_fit.track_scores || trackScores || out.role_fit.track_scores;
-  }
-
-  // Provide agency alias for older helpers if needed
-  if (!out.agency) {
-    out.agency = {};
-  }
-  out.agency.structural_control_signals = out.agency.structural_control_signals || rcSrc.structural_control_signals || null;
-  out.agency.observed_structural_signals = out.agency.observed_structural_signals || rcSrc.observed_structural_signals || null;
-
-  return out;
-}
-
-
 
 function $(id)  {
 
@@ -5105,7 +4973,7 @@ onScroll();
 function boot() {
 
   try {
-    renderReport(normalizeReportToLegacy(REPORT))
+    renderReport(REPORT)
   } catch (e) {
   NP_DEBUG && console.error('Render error:', e)
 }
@@ -5156,10 +5024,18 @@ boot()
 ;(function () {
   function getReportData(){
     try{
+      const normalize = (obj)=>{
+        if(!obj || typeof obj!=='object') return obj;
+        // unwrap common envelopes
+        if(obj.report && typeof obj.report==='object') return obj.report;
+        if(obj.output && typeof obj.output==='object') return obj.output;
+        if(obj.data && obj.data.report && typeof obj.data.report==='object') return obj.data.report;
+        return obj;
+      };
       if(typeof window !== 'undefined' && window.REPORT && typeof window.REPORT === 'object'){
-        return window.REPORT;
+        return normalize(window.REPORT);
       }
-    const el = document.getElementById('dev-report-json');
+    const el = document.getElementById('dev-report-json'); = document.getElementById('dev-report-json');
     if(el && el.textContent){
       return JSON.parse(el.textContent);
     }
