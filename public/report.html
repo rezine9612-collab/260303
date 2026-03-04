@@ -1124,81 +1124,135 @@ html.npReport-scope {
 </head>
 <body>
 
-<!-- NP_SESSION_INJECT_EARLY -->
+<!-- NP_SESSION_INJECT_CANONICAL -->
 <script>
 (function(){
+  "use strict";
+  const KEY = "np_report_json";
+
+  function readRaw(){
+    let raw = null;
+    try { raw = sessionStorage.getItem(KEY); } catch(e){ raw = null; }
+    if(!raw){
+      try { raw = localStorage.getItem(KEY); } catch(e){ raw = null; }
+      if(raw){
+        try { sessionStorage.setItem(KEY, raw); } catch(e){}
+      }
+    }
+    if(!raw){
+      try{
+        const wn = window.name || "";
+        if(wn.startsWith("NP_REPORT:")){
+          raw = wn.slice("NP_REPORT:".length);
+          try { sessionStorage.setItem(KEY, raw); } catch(e){}
+          try { localStorage.setItem(KEY, raw); } catch(e){}
+        }
+      }catch(e){ raw = null; }
+    }
+    return raw;
+  }
+
+  function isPlainObject(v){
+    return v && typeof v === "object" && !Array.isArray(v);
+  }
+
+  // Deep merge: base <- overlay
+  function deepMerge(base, overlay){
+    if(!isPlainObject(base)) base = {};
+    if(!isPlainObject(overlay)) return base;
+    const out = Array.isArray(base) ? base.slice() : Object.assign({}, base);
+    for(const k of Object.keys(overlay)){
+      const bv = out[k];
+      const ov = overlay[k];
+      if(isPlainObject(bv) && isPlainObject(ov)){
+        out[k] = deepMerge(bv, ov);
+      }else{
+        out[k] = ov;
+      }
+    }
+    return out;
+  }
+
+  function normalizeEnvelope(envelope){
+    // If derive returns {report, report_raw}, unify into one render object
+    const hasReport = envelope && isPlainObject(envelope.report);
+    const hasRaw = envelope && isPlainObject(envelope.report_raw);
+
+    let reportObj;
+    if(hasReport || hasRaw){
+      // report_raw as base, report as overlay (so UI-ready fields win)
+      reportObj = deepMerge(hasRaw ? envelope.report_raw : {}, hasReport ? envelope.report : {});
+      // Keep pointers for debugging
+      reportObj.__envelope_ok = envelope.ok;
+    }else{
+      // Already a report object
+      reportObj = envelope || {};
+    }
+
+    // Ensure submitted text exists at top-level for renderer
+    if(typeof reportObj.submitted_text !== "string" || !reportObj.submitted_text){
+      if(envelope && typeof envelope.submitted_text === "string") reportObj.submitted_text = envelope.submitted_text;
+      else if(reportObj.meta && typeof reportObj.meta.submitted_text === "string") reportObj.submitted_text = reportObj.meta.submitted_text;
+    }
+
+    // Normalize chips: supply legacy keys the UI expects
+    const chips = (reportObj.chips && typeof reportObj.chips === "object") ? reportObj.chips : {};
+    const rslLevel = chips.rsl_level_short_name || (reportObj.rsl && reportObj.rsl.level && reportObj.rsl.level.short_name) || "";
+    const fri = (chips.rsl_fri_score != null ? chips.rsl_fri_score : (reportObj.rsl && reportObj.rsl.fri && reportObj.rsl.fri.score));
+    const determination = chips.cff_final_type_chip_label || (reportObj.cff && reportObj.cff.final_type && (reportObj.cff.final_type.chip_label || reportObj.cff.final_type.label)) || "";
+    const control = chips.rc_final_determination || (reportObj.rc && reportObj.rc.reasoning_control_distribution && reportObj.rc.reasoning_control_distribution.final_determination) || "";
+    const roleFit = chips.rfs_top_group_name || (reportObj.rfs && reportObj.rfs.top_groups && reportObj.rfs.top_groups[0] && reportObj.rfs.top_groups[0].group_name) || "";
+
+    reportObj.chips = Object.assign({}, chips, {
+      rsl_level_short_name: rslLevel,
+      rsl_fri_score: fri,
+      cff_final_type_chip_label: determination,
+      rc_final_determination: control,
+      rfs_top_group_name: roleFit,
+
+      // legacy keys referenced by the current report.html renderer
+      rsl_level: rslLevel,
+      fri: fri,
+      determination: determination,
+      control: control,
+      role_fit: roleFit
+    });
+
+    return reportObj;
+  }
+
   try{
-    const raw = sessionStorage.getItem("np_report_json");
-    if(!raw) return;
+    const raw = readRaw();
+    const devEl = document.getElementById("dev-report-json");
+    if(devEl && raw) devEl.textContent = raw;
+
+    if(!raw){
+      console.warn("[NeuPrint] No report data found in storage.");
+      return;
+    }
 
     const envelope = JSON.parse(raw);
+    const reportObj = normalizeEnvelope(envelope);
 
-    function isObj(x){ return x && typeof x === 'object' && !Array.isArray(x); }
-    function deepMerge(base, overlay){
-      if(Array.isArray(base) && Array.isArray(overlay)) return overlay.slice();
-      if(!isObj(base) || !isObj(overlay)) return (overlay !== undefined ? overlay : base);
-      const out = {};
-      const keys = new Set(Object.keys(base).concat(Object.keys(overlay)));
-      keys.forEach(function(k){
-        out[k] = deepMerge(base[k], overlay[k]);
-      });
-      return out;
-    }
-
-    // Normalize envelope -> report object
-    const base = isObj(envelope) ? (envelope.report_raw || envelope.report || envelope) : {};
-    const overlay = isObj(envelope) ? (envelope.report || {}) : {};
-    const reportObj = deepMerge(base, overlay);
-
-    // Ensure chips fields expected by UI exist
-    reportObj.chips = reportObj.chips || {};
-    const rsl = reportObj.rsl || {};
-    const cff = reportObj.cff || {};
-    const rc  = reportObj.rc  || {};
-    const rfs = reportObj.rfs || {};
-
-    // RSL pills
-    if(reportObj.chips.rsl_level_short_name == null) reportObj.chips.rsl_level_short_name = (rsl.level && rsl.level.short_name) ? rsl.level.short_name : "";
-    if(reportObj.chips.rsl_fri_score == null) reportObj.chips.rsl_fri_score = (rsl.fri && rsl.fri.score != null) ? rsl.fri.score : null;
-
-    // Determination label (prefer derive path)
-    if(reportObj.chips.cff_final_type_chip_label == null){
-      reportObj.chips.cff_final_type_chip_label =
-        (cff.final_type && (cff.final_type.chip_label || cff.final_type.label)) ? (cff.final_type.chip_label || cff.final_type.label) :
-        (cff.pattern && (cff.pattern.primary_label || cff.pattern.secondary_label)) ? (cff.pattern.primary_label || cff.pattern.secondary_label) : "";
-    }
-
-    // Control (derive path)
-    if(reportObj.chips.control == null){
-      const dist = rc.reasoning_control_distribution || {};
-      reportObj.chips.control = (dist.final_determination != null) ? dist.final_determination : (rc.control_pattern || "");
-    }
-
-    // Role fit (derive path)
-    if(reportObj.chips.role_fit == null){
-      const tg = rfs.top_groups;
-      reportObj.chips.role_fit = (Array.isArray(tg) && tg[0] && tg[0].group_name) ? tg[0].group_name : "";
-    }
-
-    // Submitted text normalization (if present anywhere)
-    if(reportObj.submitted_text == null){
-      if(isObj(reportObj.meta) && reportObj.meta.submitted_text != null) reportObj.submitted_text = reportObj.meta.submitted_text;
-      else if(isObj(envelope) && isObj(envelope.meta) && envelope.meta.submitted_text != null) reportObj.submitted_text = envelope.meta.submitted_text;
-      else if(isObj(envelope) && envelope.submitted_text != null) reportObj.submitted_text = envelope.submitted_text;
-    }
-
-    // Single source of truth pointers
+    // Single source of truth
     window.NP_REPORT = reportObj;
-    window.reportData = reportObj;
     window.report = reportObj;
     window.REPORT = reportObj;
+    window.reportData = reportObj;
 
-    // Legacy compatibility: some builds used DEV_REPORT.output
+    // Back-compat: DEV_REPORT.output
     window.DEV_REPORT = { output: reportObj };
-    window.REPORT_ENVELOPE = envelope; // debug only
-  }catch(_e){}
+
+    // Keep raw envelope references if needed
+    window.NP_ENVELOPE = envelope;
+    window.REPORT_RAW = envelope && envelope.report_raw ? envelope.report_raw : null;
+
+  }catch(e){
+    console.error("[NeuPrint] Failed to load/normalize report JSON:", e);
+  }
 })();
 </script>
+
 
 <div id="npReportRoot">
 <!-- Header -->
@@ -1973,55 +2027,7 @@ return legacy;
      This is required because report.html expects #dev-report-json.
 ========================================================= -->
 <script id="dev-report-json" type="application/json"></script>
-<script>
-(function(){
-  try{
-    const key = "np_report_json";
-    let raw = null;
 
-    // 1) sessionStorage
-    try{ raw = sessionStorage.getItem(key); }catch(_e){ raw = null; }
-
-    // 2) localStorage fallback
-    if(!raw){
-      try{ raw = localStorage.getItem(key); }catch(_e){ raw = null; }
-      if(raw){
-        try{ sessionStorage.setItem(key, raw); }catch(_e){}
-      }
-    }
-
-    // 3) window.name fallback (persists across navigation)
-    if(!raw){
-      try{
-        const wn = window.name || "";
-        if(wn.startsWith("NP_REPORT:")){
-          raw = wn.slice("NP_REPORT:".length);
-          try{ sessionStorage.setItem(key, raw); }catch(_e){}
-          try{ localStorage.setItem(key, raw); }catch(_e){}
-        }
-      }catch(_e){ raw = null; }
-    }
-
-    const el = document.getElementById("dev-report-json");
-    if(raw && el){
-      el.textContent = raw;
-      try{
-        const obj = JSON.parse(raw);
-        window.report = obj;
-        window.DEV_REPORT = obj;
-        if(!window.REPORT) window.REPORT = obj;
-      }catch(_e){
-        // leave as-is; renderer may show missing-data warnings
-      }
-    }else{
-      if(el) el.textContent = JSON.stringify({ ok:false, error:"No report data found. Please run /analyze first." });
-      console.warn("[NeuPrint] No report data found. Go to /analyze and run analysis.");
-    }
-  }catch(e){
-    console.warn("[NeuPrint] Failed to load report data from storage.", e);
-  }
-})();
-</script>
 
 
 try {
@@ -2053,7 +2059,7 @@ try {
 });
 
 window.REPORT_RAW = raw;
-// NOTE: do not override window.NP_REPORT/window.REPORT here; sessionStorage or server inject is the source of truth.
+window.REPORT = buildLegacy(raw);
 
 }
 catch(e) {
@@ -2345,13 +2351,22 @@ window.renderNeuPrint = function (reportObject)  {
 
 }
 
-const REPORT = (typeof reportObject !== 'undefined' ? reportObject : null) || window.report || window.DEV_REPORT || null
+const REPORT = (typeof reportObject !== 'undefined' ? reportObject : null) || window.NP_REPORT || window.report || (window.DEV_REPORT && window.DEV_REPORT.output) || null
 if (!REPORT)  {
 
   NP_DEBUG && console.warn('[NeuPrint] No report data found. Provide window.report or DEV JSON.')
   return
 
 }
+// === Submitted Text render (unit_texts) ===
+try{
+  const elUnit = document.getElementById("unit_texts");
+  if(elUnit){
+    const txt = (REPORT && (REPORT.submitted_text || (REPORT.meta && REPORT.meta.submitted_text))) || "";
+    elUnit.textContent = txt;
+  }
+}catch(_e){}
+
 
 function $(id)  {
 
