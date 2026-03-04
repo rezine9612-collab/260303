@@ -1951,11 +1951,24 @@ return legacy;
       // We always normalize to the actual report object.
       try{
         const envelope = JSON.parse(rawText);
-        const reportObj = (envelope && typeof envelope === "object" && envelope.report && typeof envelope.report === "object")
-          ? envelope.report
-          : envelope;
+        const rep = (envelope && typeof envelope === "object" && envelope.report && typeof envelope.report === "object") ? envelope.report : null;
+        const raw = (envelope && typeof envelope === "object" && envelope.report_raw && typeof envelope.report_raw === "object") ? envelope.report_raw : null;
 
-        // Single canonical source used by all renderers
+        function mergeReport(base, extra){
+          const a = (base && typeof base === "object") ? base : {};
+          const b = (extra && typeof extra === "object") ? extra : {};
+          const out = Object.assign({}, a, b);
+          out.meta = Object.assign({}, a.meta || {}, b.meta || {});
+          out.chips = Object.assign({}, a.chips || {}, b.chips || {});
+          if(b.submitted_text != null) out.submitted_text = b.submitted_text;
+          else if(a.submitted_text != null && out.submitted_text == null) out.submitted_text = a.submitted_text;
+          if(b.ui_labels) out.ui_labels = b.ui_labels;
+          else if(a.ui_labels && !out.ui_labels) out.ui_labels = a.ui_labels;
+          return out;
+        }
+
+        const reportObj = (rep && raw) ? mergeReport(raw, rep) : (rep || raw || envelope);
+// Single canonical source used by all renderers
         window.NP_UI_LABELS = (envelope && envelope.ui_labels) ? envelope.ui_labels : ((reportObj && reportObj.ui_labels) ? reportObj.ui_labels : {});
         window.NP_REPORT = reportObj;
 
@@ -1986,10 +1999,23 @@ if(!el || !el.textContent) throw new Error('[NeuPrint] dev-report-json missing')
 
 // Stored JSON may be an envelope: { report, report_raw, ... }
 const envelope = JSON.parse(el.textContent);
-const raw = (envelope && typeof envelope === 'object' && envelope.report && typeof envelope.report === 'object')
-  ? envelope.report
-  : envelope;
+const rep = (envelope && typeof envelope === 'object' && envelope.report && typeof envelope.report === 'object') ? envelope.report : null;
+const base = (envelope && typeof envelope === 'object' && envelope.report_raw && typeof envelope.report_raw === 'object') ? envelope.report_raw : null;
 
+function mergeReport(baseObj, extraObj){
+  const a = (baseObj && typeof baseObj === 'object') ? baseObj : {};
+  const b = (extraObj && typeof extraObj === 'object') ? extraObj : {};
+  const out = Object.assign({}, a, b);
+  out.meta = Object.assign({}, a.meta || {}, b.meta || {});
+  out.chips = Object.assign({}, a.chips || {}, b.chips || {});
+  if(b.submitted_text != null) out.submitted_text = b.submitted_text;
+  else if(a.submitted_text != null && out.submitted_text == null) out.submitted_text = a.submitted_text;
+  if(b.ui_labels) out.ui_labels = b.ui_labels;
+  else if(a.ui_labels && !out.ui_labels) out.ui_labels = a.ui_labels;
+  return out;
+}
+
+const raw = (rep && base) ? mergeReport(base, rep) : (rep || base || envelope);
 window.NP_UI_LABELS = (envelope && envelope.ui_labels) ? envelope.ui_labels : ((raw && raw.ui_labels) ? raw.ui_labels : {});
 
 // Canonical single source
