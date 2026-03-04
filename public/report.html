@@ -1132,29 +1132,9 @@ html.npReport-scope {
     if(raw){
       try{
         const obj = JSON.parse(raw);
-        const env = obj;
-        function isObj(x){return x && typeof x==='object' && !Array.isArray(x);}
-        function deepMerge(base, over){
-          if(!isObj(base)) base = {};
-          if(!isObj(over)) return base;
-          const out = Array.isArray(base) ? base.slice() : {...base};
-          for(const k of Object.keys(over)){
-            const bv = base[k];
-            const ov = over[k];
-            if(isObj(bv) && isObj(ov)) out[k] = deepMerge(bv, ov);
-            else out[k] = ov;
-          }
-          return out;
-        }
-        const reportObj = (env && isObj(env) && (env.report || env.report_raw))
-          ? deepMerge(env.report_raw || {}, env.report || {})
-          : env;
-        window.NP_REPORT = reportObj;
-        window.report = reportObj;
-        window.reportData = reportObj;
-        window.REPORT = reportObj;
-        window.DEV_REPORT = { output: reportObj };
-
+        window.report = obj;
+        window.DEV_REPORT = obj;
+        if(!window.REPORT) window.REPORT = obj;
       }catch(_e){}
     }
   }catch(_e){}
@@ -1968,29 +1948,9 @@ return legacy;
       el.textContent = raw;
       try{
         const obj = JSON.parse(raw);
-        const env = obj;
-        function isObj(x){return x && typeof x==='object' && !Array.isArray(x);}
-        function deepMerge(base, over){
-          if(!isObj(base)) base = {};
-          if(!isObj(over)) return base;
-          const out = Array.isArray(base) ? base.slice() : {...base};
-          for(const k of Object.keys(over)){
-            const bv = base[k];
-            const ov = over[k];
-            if(isObj(bv) && isObj(ov)) out[k] = deepMerge(bv, ov);
-            else out[k] = ov;
-          }
-          return out;
-        }
-        const reportObj = (env && isObj(env) && (env.report || env.report_raw))
-          ? deepMerge(env.report_raw || {}, env.report || {})
-          : env;
-        window.NP_REPORT = reportObj;
-        window.report = reportObj;
-        window.reportData = reportObj;
-        window.REPORT = reportObj;
-        window.DEV_REPORT = { output: reportObj };
-
+        window.report = obj;
+        window.DEV_REPORT = obj;
+        if(!window.REPORT) window.REPORT = obj;
       }catch(_e){
         // leave as-is; renderer may show missing-data warnings
       }
@@ -2009,32 +1969,76 @@ try {
 
   const el = document.getElementById('dev-report-json');
   if(!el || !el.textContent) throw new Error('[NeuPrint] dev-report-json missing');
-  const raw = JSON.parse(el.textContent);
-  window.NP_UI_LABELS = (raw && raw.ui_labels) ? raw.ui_labels : {};
+  const envelope = JSON.parse(el.textContent);
 
-  [
-  'meta.verify_url',
-  'meta.verification_id',
-  'meta.decision_compression_quote',
-  'chips.rsl_level_short_name',
-  'chips.cff_final_type_chip_label',
-  'chips.rsl_fri_score',
-  'chips.rc_final_determination',
-  'chips.rfs_top_group_name',
-  'rsl.level.short_name',
-  'rsl.fri.score',
-  'rsl.cohort.top_percent_label',
-  'rsl.sri.score',
-  'cff.final_type.chip_label',
-  'cff.final_type.confidence',
-  'rc.determination_sentence'
-].forEach(function(p){
-  try{ requirePath(raw,p); }
-  catch(e){ console.warn('[NeuPrint] missing path:', p); }
-});
+// 1) Normalize: derive/network returns an envelope like { ok, extraction, report, report_raw, ui_labels }.
+//    The renderer must always consume the *report object* (rsl/cff/rc/rfs/meta...), not the envelope.
+function npDeepMerge(a, b){
+  if(a == null) return b;
+  if(b == null) return a;
+  if(Array.isArray(a) || Array.isArray(b)) return (b != null ? b : a);
+  if(typeof a !== 'object' || typeof b !== 'object') return (b != null ? b : a);
+  const out = Object.assign({}, a);
+  for(const k in b){
+    if(!Object.prototype.hasOwnProperty.call(b,k)) continue;
+    out[k] = npDeepMerge(a[k], b[k]);
+  }
+  return out;
+}
 
+function npNormalizeEnvelope(e){
+  if(!e || typeof e !== 'object') return (e || {});
+  // Prefer report_raw as base (derive-computed), overlay report (UI-ready fields).
+  const base = (e.report_raw && typeof e.report_raw === 'object') ? e.report_raw : {};
+  const over = (e.report && typeof e.report === 'object') ? e.report : {};
+  const merged = npDeepMerge(base, over);
+
+  // Some pipelines may already provide the report object at top-level.
+  const looksLikeReport = (merged && (merged.rsl || merged.cff || merged.rc || merged.rfs || merged.meta));
+  if(looksLikeReport) return merged;
+
+  // Fallback: if no report/report_raw, treat envelope itself as report.
+  return e;
+}
+
+const raw = npNormalizeEnvelope(envelope);
+
+// 2) Ensure chips exist (legacy renderer expects chips.* keys)
+raw.chips = raw.chips || {};
+if(raw.rsl && raw.rsl.level && raw.rsl.level.short_name && !raw.chips.rsl_level_short_name){
+  raw.chips.rsl_level_short_name = raw.rsl.level.short_name;
+}
+if(raw.rsl && raw.rsl.fri && raw.rsl.fri.score != null && raw.chips.rsl_fri_score == null){
+  raw.chips.rsl_fri_score = raw.rsl.fri.score;
+}
+if(raw.cff && raw.cff.final_type && (raw.cff.final_type.chip_label || raw.cff.final_type.label) && !raw.chips.cff_final_type_chip_label){
+  raw.chips.cff_final_type_chip_label = raw.cff.final_type.chip_label || raw.cff.final_type.label;
+}
+if(raw.rc && raw.rc.reasoning_control_distribution && raw.rc.reasoning_control_distribution.final_determination && !raw.chips.rc_final_determination){
+  raw.chips.rc_final_determination = raw.rc.reasoning_control_distribution.final_determination;
+}
+if(raw.rfs && raw.rfs.top_groups && raw.rfs.top_groups[0] && raw.rfs.top_groups[0].group_name && !raw.chips.rfs_top_group_name){
+  raw.chips.rfs_top_group_name = raw.rfs.top_groups[0].group_name;
+}
+
+// 3) UI labels
+window.NP_UI_LABELS = (envelope && envelope.ui_labels) ? envelope.ui_labels : ((raw && raw.ui_labels) ? raw.ui_labels : {});
+
+// 4) Single source of truth
+window.NP_REPORT = raw;
 window.REPORT_RAW = raw;
-window.REPORT = buildLegacy(raw);
+
+// 5) Legacy object for the renderer (hero/chips mapping etc.)
+const legacy = buildLegacy(raw);
+
+// Make every historical entrypoint point to the same legacy object (report UI reads legacy),
+// while keeping raw available via NP_REPORT / REPORT_RAW.
+window.reportObject = legacy;
+window.report = legacy;
+window.REPORT = legacy;
+window.reportData = legacy;
+window.DEV_REPORT = { output: legacy };
+
 
 }
 catch(e) {
@@ -3073,6 +3077,7 @@ if (window.Chart) {
 
 function renderReport(r) {
   renderHero(r)
+  renderSubmittedText(r)
   renderHeaderPills(r)
   renderExecutiveMetrics(r)
   renderSummaryPanels(r)
@@ -3087,6 +3092,20 @@ function renderReport(r) {
   renderAgencySignals(r)
   renderRoleFit(r)
   renderMetadata(r)
+}
+
+function renderSubmittedText(r){
+  try{
+    const raw = window.NP_REPORT || window.REPORT_RAW || null;
+    const txt =
+      (raw && (raw.submitted_text || (raw.meta && (raw.meta.submitted_text || raw.meta.input_text)) )) ||
+      (r && r.meta && (r.meta.submitted_text || r.meta.input_text)) ||
+      '';
+    const el = document.getElementById('unit_texts');
+    if(el){
+      el.textContent = String(txt || '');
+    }
+  }catch(_e){}
 }
 
 function renderHero(r) {
