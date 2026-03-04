@@ -1133,10 +1133,6 @@ html.npReport-scope {
 
     const envelope = JSON.parse(raw);
 
-    // Deterministic normalization:
-    // - If envelope has {report, report_raw}, merge (report_raw base, report overlay)
-    // - Else if envelope has {report}, use envelope.report
-    // - Else use envelope as-is (already a report object)
     function isObj(x){ return x && typeof x === 'object' && !Array.isArray(x); }
     function deepMerge(base, overlay){
       if(Array.isArray(base) && Array.isArray(overlay)) return overlay.slice();
@@ -1149,89 +1145,57 @@ html.npReport-scope {
       return out;
     }
 
+    // Normalize envelope -> report object
     const base = isObj(envelope) ? (envelope.report_raw || envelope.report || envelope) : {};
     const overlay = isObj(envelope) ? (envelope.report || {}) : {};
     const reportObj = deepMerge(base, overlay);
 
-    // Ensure chips exist (renderer expects chips.* fields)
+    // Ensure chips fields expected by UI exist
+    reportObj.chips = reportObj.chips || {};
     const rsl = reportObj.rsl || {};
     const cff = reportObj.cff || {};
     const rc  = reportObj.rc  || {};
     const rfs = reportObj.rfs || {};
 
-    reportObj.chips = reportObj.chips || {};
+    // RSL pills
+    if(reportObj.chips.rsl_level_short_name == null) reportObj.chips.rsl_level_short_name = (rsl.level && rsl.level.short_name) ? rsl.level.short_name : "";
+    if(reportObj.chips.rsl_fri_score == null) reportObj.chips.rsl_fri_score = (rsl.fri && rsl.fri.score != null) ? rsl.fri.score : null;
 
-    // RSL
-    if(reportObj.chips.rsl_level_short_name == null){
-      reportObj.chips.rsl_level_short_name = (rsl.level && rsl.level.short_name) ? rsl.level.short_name : "";
-    }
-    if(reportObj.chips.rsl_level == null){
-      reportObj.chips.rsl_level = (rsl.level && rsl.level.full_name) ? rsl.level.full_name : reportObj.chips.rsl_level_short_name;
-    }
-    if(reportObj.chips.rsl_fri_score == null){
-      reportObj.chips.rsl_fri_score = (rsl.fri && typeof rsl.fri.score !== 'undefined') ? rsl.fri.score : null;
-    }
-    if(reportObj.chips.fri == null){
-      reportObj.chips.fri = reportObj.chips.rsl_fri_score;
-    }
-
-    // CFF
+    // Determination label (prefer derive path)
     if(reportObj.chips.cff_final_type_chip_label == null){
-      reportObj.chips.cff_final_type_chip_label = (cff.final_type && cff.final_type.chip_label) ? cff.final_type.chip_label : (cff.final_type && cff.final_type.label ? cff.final_type.label : "");
-    }
-    if(reportObj.chips.determination == null){
-      // Many UIs treat "Determination" as final type label
-      reportObj.chips.determination = reportObj.chips.cff_final_type_chip_label;
+      reportObj.chips.cff_final_type_chip_label =
+        (cff.final_type && (cff.final_type.chip_label || cff.final_type.label)) ? (cff.final_type.chip_label || cff.final_type.label) :
+        (cff.pattern && (cff.pattern.primary_label || cff.pattern.secondary_label)) ? (cff.pattern.primary_label || cff.pattern.secondary_label) : "";
     }
 
-    // RC
-    if(reportObj.chips.rc_final_determination == null){
-      reportObj.chips.rc_final_determination =
-        (rc.reasoning_control_distribution && rc.reasoning_control_distribution.final_determination)
-          ? rc.reasoning_control_distribution.final_determination
-          : (rc.final_determination ? rc.final_determination : "");
-    }
+    // Control (derive path)
     if(reportObj.chips.control == null){
-      reportObj.chips.control = reportObj.chips.rc_final_determination;
+      const dist = rc.reasoning_control_distribution || {};
+      reportObj.chips.control = (dist.final_determination != null) ? dist.final_determination : (rc.control_pattern || "");
     }
 
-    // RFS
-    if(reportObj.chips.rfs_top_group_name == null){
-      const tg = rfs.top_groups;
-      reportObj.chips.rfs_top_group_name = (Array.isArray(tg) && tg[0] && tg[0].group_name) ? tg[0].group_name : "";
-    }
+    // Role fit (derive path)
     if(reportObj.chips.role_fit == null){
-      reportObj.chips.role_fit = reportObj.chips.rfs_top_group_name;
+      const tg = rfs.top_groups;
+      reportObj.chips.role_fit = (Array.isArray(tg) && tg[0] && tg[0].group_name) ? tg[0].group_name : "";
     }
 
-    // Submitted text (Input Preview)
-    // Renderer uses reportObj.input_preview_text
-    if(reportObj.input_preview_text == null){
-      // prefer meta.submitted_text, then submitted_text, then extraction.layer_0.unit_texts join
-      const meta = reportObj.meta || {};
-      if(typeof meta.submitted_text === 'string' && meta.submitted_text.trim()){
-        reportObj.input_preview_text = meta.submitted_text;
-      }else if(typeof reportObj.submitted_text === 'string' && reportObj.submitted_text.trim()){
-        reportObj.input_preview_text = reportObj.submitted_text;
-      }else{
-        const ex = envelope && envelope.extraction;
-        const unitTexts = ex && ex.layer_0 && Array.isArray(ex.layer_0.unit_texts) ? ex.layer_0.unit_texts : null;
-        if(unitTexts && unitTexts.length){
-          reportObj.input_preview_text = unitTexts.join("
-");
-        }else{
-          reportObj.input_preview_text = "";
-        }
-      }
+    // Submitted text normalization (if present anywhere)
+    if(reportObj.submitted_text == null){
+      if(isObj(reportObj.meta) && reportObj.meta.submitted_text != null) reportObj.submitted_text = reportObj.meta.submitted_text;
+      else if(isObj(envelope) && isObj(envelope.meta) && envelope.meta.submitted_text != null) reportObj.submitted_text = envelope.meta.submitted_text;
+      else if(isObj(envelope) && envelope.submitted_text != null) reportObj.submitted_text = envelope.submitted_text;
     }
 
-    // Single source of truth for the renderer
+    // Single source of truth pointers
     window.NP_REPORT = reportObj;
-    window.REPORT = reportObj;
-    window.report = reportObj;
     window.reportData = reportObj;
-    window.DEV_REPORT = reportObj;
-    window.REPORT_ENVELOPE = envelope; // debug handle
+    window.report = reportObj;
+    window.REPORT = reportObj;
+
+    // Legacy compatibility: some builds used DEV_REPORT.output
+    window.DEV_REPORT = { output: reportObj };
+    window.REPORT_ENVELOPE = envelope; // debug only
   }catch(_e){}
 })();
 </script>
@@ -1296,7 +1260,7 @@ html.npReport-scope {
 <div class="inputPreviewBox" id="inputPreviewBox">
   <div class="small boxLabel">Submitted Text</div>
   <div class="inputPreviewInner">
-    <div class="inputPreviewText collapsed" id="inputPreviewText"></div>
+    <div class="inputPreviewText collapsed" id="unit_texts"></div>
     <div class="inputPreviewFooter">
       <div class="inputPreviewSpacer" aria-hidden="true"></div>
       <button class="inputPreviewToggle" id="inputPreviewToggle" type="button" aria-expanded="false">
@@ -2089,7 +2053,7 @@ try {
 });
 
 window.REPORT_RAW = raw;
-window.REPORT = buildLegacy(raw);
+// NOTE: do not override window.NP_REPORT/window.REPORT here; sessionStorage or server inject is the source of truth.
 
 }
 catch(e) {
