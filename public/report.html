@@ -1129,14 +1129,109 @@ html.npReport-scope {
 (function(){
   try{
     const raw = sessionStorage.getItem("np_report_json");
-    if(raw){
-      try{
-        const obj = JSON.parse(raw);
-        window.report = obj;
-        window.DEV_REPORT = obj;
-        if(!window.REPORT) window.REPORT = obj;
-      }catch(_e){}
+    if(!raw) return;
+
+    const envelope = JSON.parse(raw);
+
+    // Deterministic normalization:
+    // - If envelope has {report, report_raw}, merge (report_raw base, report overlay)
+    // - Else if envelope has {report}, use envelope.report
+    // - Else use envelope as-is (already a report object)
+    function isObj(x){ return x && typeof x === 'object' && !Array.isArray(x); }
+    function deepMerge(base, overlay){
+      if(Array.isArray(base) && Array.isArray(overlay)) return overlay.slice();
+      if(!isObj(base) || !isObj(overlay)) return (overlay !== undefined ? overlay : base);
+      const out = {};
+      const keys = new Set(Object.keys(base).concat(Object.keys(overlay)));
+      keys.forEach(function(k){
+        out[k] = deepMerge(base[k], overlay[k]);
+      });
+      return out;
     }
+
+    const base = isObj(envelope) ? (envelope.report_raw || envelope.report || envelope) : {};
+    const overlay = isObj(envelope) ? (envelope.report || {}) : {};
+    const reportObj = deepMerge(base, overlay);
+
+    // Ensure chips exist (renderer expects chips.* fields)
+    const rsl = reportObj.rsl || {};
+    const cff = reportObj.cff || {};
+    const rc  = reportObj.rc  || {};
+    const rfs = reportObj.rfs || {};
+
+    reportObj.chips = reportObj.chips || {};
+
+    // RSL
+    if(reportObj.chips.rsl_level_short_name == null){
+      reportObj.chips.rsl_level_short_name = (rsl.level && rsl.level.short_name) ? rsl.level.short_name : "";
+    }
+    if(reportObj.chips.rsl_level == null){
+      reportObj.chips.rsl_level = (rsl.level && rsl.level.full_name) ? rsl.level.full_name : reportObj.chips.rsl_level_short_name;
+    }
+    if(reportObj.chips.rsl_fri_score == null){
+      reportObj.chips.rsl_fri_score = (rsl.fri && typeof rsl.fri.score !== 'undefined') ? rsl.fri.score : null;
+    }
+    if(reportObj.chips.fri == null){
+      reportObj.chips.fri = reportObj.chips.rsl_fri_score;
+    }
+
+    // CFF
+    if(reportObj.chips.cff_final_type_chip_label == null){
+      reportObj.chips.cff_final_type_chip_label = (cff.final_type && cff.final_type.chip_label) ? cff.final_type.chip_label : (cff.final_type && cff.final_type.label ? cff.final_type.label : "");
+    }
+    if(reportObj.chips.determination == null){
+      // Many UIs treat "Determination" as final type label
+      reportObj.chips.determination = reportObj.chips.cff_final_type_chip_label;
+    }
+
+    // RC
+    if(reportObj.chips.rc_final_determination == null){
+      reportObj.chips.rc_final_determination =
+        (rc.reasoning_control_distribution && rc.reasoning_control_distribution.final_determination)
+          ? rc.reasoning_control_distribution.final_determination
+          : (rc.final_determination ? rc.final_determination : "");
+    }
+    if(reportObj.chips.control == null){
+      reportObj.chips.control = reportObj.chips.rc_final_determination;
+    }
+
+    // RFS
+    if(reportObj.chips.rfs_top_group_name == null){
+      const tg = rfs.top_groups;
+      reportObj.chips.rfs_top_group_name = (Array.isArray(tg) && tg[0] && tg[0].group_name) ? tg[0].group_name : "";
+    }
+    if(reportObj.chips.role_fit == null){
+      reportObj.chips.role_fit = reportObj.chips.rfs_top_group_name;
+    }
+
+    // Submitted text (Input Preview)
+    // Renderer uses reportObj.input_preview_text
+    if(reportObj.input_preview_text == null){
+      // prefer meta.submitted_text, then submitted_text, then extraction.layer_0.unit_texts join
+      const meta = reportObj.meta || {};
+      if(typeof meta.submitted_text === 'string' && meta.submitted_text.trim()){
+        reportObj.input_preview_text = meta.submitted_text;
+      }else if(typeof reportObj.submitted_text === 'string' && reportObj.submitted_text.trim()){
+        reportObj.input_preview_text = reportObj.submitted_text;
+      }else{
+        const ex = envelope && envelope.extraction;
+        const unitTexts = ex && ex.layer_0 && Array.isArray(ex.layer_0.unit_texts) ? ex.layer_0.unit_texts : null;
+        if(unitTexts && unitTexts.length){
+          reportObj.input_preview_text = unitTexts.join("
+");
+        }else{
+          reportObj.input_preview_text = "";
+        }
+      }
+    }
+
+    // Single source of truth for the renderer
+    window.NP_REPORT = reportObj;
+    window.REPORT = reportObj;
+    window.report = reportObj;
+    window.reportData = reportObj;
+    window.DEV_REPORT = reportObj;
+    window.REPORT_ENVELOPE = envelope; // debug handle
   }catch(_e){}
 })();
 </script>
@@ -1201,7 +1296,7 @@ html.npReport-scope {
 <div class="inputPreviewBox" id="inputPreviewBox">
   <div class="small boxLabel">Submitted Text</div>
   <div class="inputPreviewInner">
-    <div class="inputPreviewText collapsed" id="unit_texts"></div>
+    <div class="inputPreviewText collapsed" id="inputPreviewText"></div>
     <div class="inputPreviewFooter">
       <div class="inputPreviewSpacer" aria-hidden="true"></div>
       <button class="inputPreviewToggle" id="inputPreviewToggle" type="button" aria-expanded="false">
@@ -1918,68 +2013,41 @@ return legacy;
 (function(){
   try{
     const key = "np_report_json";
-    let rawText = null;
+    let raw = null;
 
     // 1) sessionStorage
-    try{ rawText = sessionStorage.getItem(key); }catch(_e){ rawText = null; }
+    try{ raw = sessionStorage.getItem(key); }catch(_e){ raw = null; }
 
     // 2) localStorage fallback
-    if(!rawText){
-      try{ rawText = localStorage.getItem(key); }catch(_e){ rawText = null; }
-      if(rawText){
-        try{ sessionStorage.setItem(key, rawText); }catch(_e){}
+    if(!raw){
+      try{ raw = localStorage.getItem(key); }catch(_e){ raw = null; }
+      if(raw){
+        try{ sessionStorage.setItem(key, raw); }catch(_e){}
       }
     }
 
     // 3) window.name fallback (persists across navigation)
-    if(!rawText){
+    if(!raw){
       try{
         const wn = window.name || "";
         if(wn.startsWith("NP_REPORT:")){
-          rawText = wn.slice("NP_REPORT:".length);
-          try{ sessionStorage.setItem(key, rawText); }catch(_e){}
-          try{ localStorage.setItem(key, rawText); }catch(_e){}
+          raw = wn.slice("NP_REPORT:".length);
+          try{ sessionStorage.setItem(key, raw); }catch(_e){}
+          try{ localStorage.setItem(key, raw); }catch(_e){}
         }
-      }catch(_e){ rawText = null; }
+      }catch(_e){ raw = null; }
     }
 
     const el = document.getElementById("dev-report-json");
-    if(rawText && el){
-      el.textContent = rawText;
-
-      // IMPORTANT: the stored JSON may be an envelope: { report, report_raw, ... }
-      // We always normalize to the actual report object.
+    if(raw && el){
+      el.textContent = raw;
       try{
-        const envelope = JSON.parse(rawText);
-        const rep = (envelope && typeof envelope === "object" && envelope.report && typeof envelope.report === "object") ? envelope.report : null;
-        const raw = (envelope && typeof envelope === "object" && envelope.report_raw && typeof envelope.report_raw === "object") ? envelope.report_raw : null;
-
-        function mergeReport(base, extra){
-          const a = (base && typeof base === "object") ? base : {};
-          const b = (extra && typeof extra === "object") ? extra : {};
-          const out = Object.assign({}, a, b);
-          out.meta = Object.assign({}, a.meta || {}, b.meta || {});
-          out.chips = Object.assign({}, a.chips || {}, b.chips || {});
-          if(b.submitted_text != null) out.submitted_text = b.submitted_text;
-          else if(a.submitted_text != null && out.submitted_text == null) out.submitted_text = a.submitted_text;
-          if(b.ui_labels) out.ui_labels = b.ui_labels;
-          else if(a.ui_labels && !out.ui_labels) out.ui_labels = a.ui_labels;
-          return out;
-        }
-
-        const reportObj = (rep && raw) ? mergeReport(raw, rep) : (rep || raw || envelope);
-// Single canonical source used by all renderers
-        window.NP_UI_LABELS = (envelope && envelope.ui_labels) ? envelope.ui_labels : ((reportObj && reportObj.ui_labels) ? reportObj.ui_labels : {});
-        window.NP_REPORT = reportObj;
-
-        // Backward-compatible aliases (all point to the same object)
-        window.report = reportObj;
-        window.reportData = reportObj;
-        window.DEV_REPORT = window.DEV_REPORT || {};
-        window.DEV_REPORT.output = reportObj;
-        window.REPORT_ENVELOPE = envelope; // optional debug handle
+        const obj = JSON.parse(raw);
+        window.report = obj;
+        window.DEV_REPORT = obj;
+        if(!window.REPORT) window.REPORT = obj;
       }catch(_e){
-        // If JSON parse fails, leave el.textContent as-is; later scripts will show errors.
+        // leave as-is; renderer may show missing-data warnings
       }
     }else{
       if(el) el.textContent = JSON.stringify({ ok:false, error:"No report data found. Please run /analyze first." });
@@ -1995,39 +2063,11 @@ return legacy;
 try {
 
   const el = document.getElementById('dev-report-json');
-if(!el || !el.textContent) throw new Error('[NeuPrint] dev-report-json missing');
+  if(!el || !el.textContent) throw new Error('[NeuPrint] dev-report-json missing');
+  const raw = JSON.parse(el.textContent);
+  window.NP_UI_LABELS = (raw && raw.ui_labels) ? raw.ui_labels : {};
 
-// Stored JSON may be an envelope: { report, report_raw, ... }
-const envelope = JSON.parse(el.textContent);
-const rep = (envelope && typeof envelope === 'object' && envelope.report && typeof envelope.report === 'object') ? envelope.report : null;
-const base = (envelope && typeof envelope === 'object' && envelope.report_raw && typeof envelope.report_raw === 'object') ? envelope.report_raw : null;
-
-function mergeReport(baseObj, extraObj){
-  const a = (baseObj && typeof baseObj === 'object') ? baseObj : {};
-  const b = (extraObj && typeof extraObj === 'object') ? extraObj : {};
-  const out = Object.assign({}, a, b);
-  out.meta = Object.assign({}, a.meta || {}, b.meta || {});
-  out.chips = Object.assign({}, a.chips || {}, b.chips || {});
-  if(b.submitted_text != null) out.submitted_text = b.submitted_text;
-  else if(a.submitted_text != null && out.submitted_text == null) out.submitted_text = a.submitted_text;
-  if(b.ui_labels) out.ui_labels = b.ui_labels;
-  else if(a.ui_labels && !out.ui_labels) out.ui_labels = a.ui_labels;
-  return out;
-}
-
-const raw = (rep && base) ? mergeReport(base, rep) : (rep || base || envelope);
-window.NP_UI_LABELS = (envelope && envelope.ui_labels) ? envelope.ui_labels : ((raw && raw.ui_labels) ? raw.ui_labels : {});
-
-// Canonical single source
-window.NP_REPORT = raw;
-window.report = raw;
-window.reportData = raw;
-window.DEV_REPORT = window.DEV_REPORT || {};
-window.DEV_REPORT.output = raw;
-window.REPORT_ENVELOPE = envelope;
-
-// Diagnostics: require key paths on the *actual report object*
-[
+  [
   'meta.verify_url',
   'meta.verification_id',
   'meta.decision_compression_quote',
@@ -2050,6 +2090,7 @@ window.REPORT_ENVELOPE = envelope;
 
 window.REPORT_RAW = raw;
 window.REPORT = buildLegacy(raw);
+
 }
 catch(e) {
 
