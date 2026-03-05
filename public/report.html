@@ -1123,24 +1123,6 @@ html.npReport-scope {
 </style>
 </head>
 <body>
-
-<!-- NP_SESSION_INJECT_EARLY -->
-<script>
-(function(){
-  try{
-    const raw = sessionStorage.getItem("np_report_json");
-    if(raw){
-      try{
-        const obj = JSON.parse(raw);
-        window.report = obj;
-        window.DEV_REPORT = obj;
-        if(!window.REPORT) window.REPORT = obj;
-      }catch(_e){}
-    }
-  }catch(_e){}
-})();
-</script>
-
 <div id="npReportRoot">
 <!-- Header -->
 <header class="topbar" id="topbar">
@@ -1201,7 +1183,7 @@ html.npReport-scope {
 <div class="inputPreviewBox" id="inputPreviewBox">
   <div class="small boxLabel">Submitted Text</div>
   <div class="inputPreviewInner">
-    <div class="inputPreviewText collapsed" id="unit_texts"></div>
+    <div class="inputPreviewText collapsed" id="inputPreviewText"></div>
     <div class="inputPreviewFooter">
       <div class="inputPreviewSpacer" aria-hidden="true"></div>
       <button class="inputPreviewToggle" id="inputPreviewToggle" type="button" aria-expanded="false">
@@ -1677,6 +1659,41 @@ html.npReport-scope {
 </div>
 </div>
 <script>
+/* NP Loader Normalizer: unify DEV_REPORT / dev-report-json / reportData */
+(function () {
+  let data = null;
+
+  // Prefer existing DEV_REPORT.output if present (runtime injection case)
+  if (window.DEV_REPORT && window.DEV_REPORT.output && typeof window.DEV_REPORT.output === "object") {
+    data = window.DEV_REPORT.output;
+  }
+
+  // Otherwise parse embedded JSON
+  if (!data) {
+    const el = document.getElementById("dev-report-json");
+    if (el && el.textContent && el.textContent.trim()) {
+      try { data = JSON.parse(el.textContent); } catch (e) { data = null; }
+    }
+  }
+
+  // Lastly, fallback to window.reportData if someone set it earlier
+  if (!data && window.reportData && typeof window.reportData === "object") {
+    data = window.reportData;
+  }
+
+  // Never allow null
+  if (!data) data = { meta: {} };
+
+  // Canonical single source of truth
+  window.NP_REPORT = data;
+
+  // Backward compatible aliases, all point to the same object
+  window.DEV_REPORT = { output: data };
+  window.reportData = data;
+})();
+</script>
+
+<script>
 
 /* Script 2: Bootstrap / helpers */
 
@@ -1909,136 +1926,36 @@ return legacy;
 
 }
 
-<!-- =========================================================
-     Inject report JSON from sessionStorage (Vercel runtime)
-     This is required because report.html expects #dev-report-json.
-========================================================= -->
-<script id="dev-report-json" type="application/json"></script>
-<script>
-(function(){
-  try{
-    const key = "np_report_json";
-    let raw = null;
-
-    // 1) sessionStorage
-    try{ raw = sessionStorage.getItem(key); }catch(_e){ raw = null; }
-
-    // 2) localStorage fallback
-    if(!raw){
-      try{ raw = localStorage.getItem(key); }catch(_e){ raw = null; }
-      if(raw){
-        try{ sessionStorage.setItem(key, raw); }catch(_e){}
-      }
-    }
-
-    // 3) window.name fallback (persists across navigation)
-    if(!raw){
-      try{
-        const wn = window.name || "";
-        if(wn.startsWith("NP_REPORT:")){
-          raw = wn.slice("NP_REPORT:".length);
-          try{ sessionStorage.setItem(key, raw); }catch(_e){}
-          try{ localStorage.setItem(key, raw); }catch(_e){}
-        }
-      }catch(_e){ raw = null; }
-    }
-
-    const el = document.getElementById("dev-report-json");
-    if(raw && el){
-      el.textContent = raw;
-      try{
-        const obj = JSON.parse(raw);
-        window.report = obj;
-        window.DEV_REPORT = obj;
-        if(!window.REPORT) window.REPORT = obj;
-      }catch(_e){
-        // leave as-is; renderer may show missing-data warnings
-      }
-    }else{
-      if(el) el.textContent = JSON.stringify({ ok:false, error:"No report data found. Please run /analyze first." });
-      console.warn("[NeuPrint] No report data found. Go to /analyze and run analysis.");
-    }
-  }catch(e){
-    console.warn("[NeuPrint] Failed to load report data from storage.", e);
-  }
-})();
-</script>
-
-
 try {
 
   const el = document.getElementById('dev-report-json');
   if(!el || !el.textContent) throw new Error('[NeuPrint] dev-report-json missing');
-  const envelope = JSON.parse(el.textContent);
+  const raw = JSON.parse(el.textContent);
+  window.NP_UI_LABELS = (raw && raw.ui_labels) ? raw.ui_labels : {};
 
-// 1) Normalize: derive/network returns an envelope like { ok, extraction, report, report_raw, ui_labels }.
-//    The renderer must always consume the *report object* (rsl/cff/rc/rfs/meta...), not the envelope.
-function npDeepMerge(a, b){
-  if(a == null) return b;
-  if(b == null) return a;
-  if(Array.isArray(a) || Array.isArray(b)) return (b != null ? b : a);
-  if(typeof a !== 'object' || typeof b !== 'object') return (b != null ? b : a);
-  const out = Object.assign({}, a);
-  for(const k in b){
-    if(!Object.prototype.hasOwnProperty.call(b,k)) continue;
-    out[k] = npDeepMerge(a[k], b[k]);
-  }
-  return out;
-}
+  [
+  'meta.verify_url',
+  'meta.verification_id',
+  'meta.decision_compression_quote',
+  'chips.rsl_level_short_name',
+  'chips.cff_final_type_chip_label',
+  'chips.rsl_fri_score',
+  'chips.rc_final_determination',
+  'chips.rfs_top_group_name',
+  'rsl.level.short_name',
+  'rsl.fri.score',
+  'rsl.cohort.top_percent_label',
+  'rsl.sri.score',
+  'cff.final_type.chip_label',
+  'cff.final_type.confidence',
+  'rc.determination_sentence'
+].forEach(function(p){
+  try{ requirePath(raw,p); }
+  catch(e){ console.warn('[NeuPrint] missing path:', p); }
+});
 
-function npNormalizeEnvelope(e){
-  if(!e || typeof e !== 'object') return (e || {});
-  // Prefer report_raw as base (derive-computed), overlay report (UI-ready fields).
-  const base = (e.report_raw && typeof e.report_raw === 'object') ? e.report_raw : {};
-  const over = (e.report && typeof e.report === 'object') ? e.report : {};
-  const merged = npDeepMerge(base, over);
-
-  // Some pipelines may already provide the report object at top-level.
-  const looksLikeReport = (merged && (merged.rsl || merged.cff || merged.rc || merged.rfs || merged.meta));
-  if(looksLikeReport) return merged;
-
-  // Fallback: if no report/report_raw, treat envelope itself as report.
-  return e;
-}
-
-const raw = npNormalizeEnvelope(envelope);
-
-// 2) Ensure chips exist (legacy renderer expects chips.* keys)
-raw.chips = raw.chips || {};
-if(raw.rsl && raw.rsl.level && raw.rsl.level.short_name && !raw.chips.rsl_level_short_name){
-  raw.chips.rsl_level_short_name = raw.rsl.level.short_name;
-}
-if(raw.rsl && raw.rsl.fri && raw.rsl.fri.score != null && raw.chips.rsl_fri_score == null){
-  raw.chips.rsl_fri_score = raw.rsl.fri.score;
-}
-if(raw.cff && raw.cff.final_type && (raw.cff.final_type.chip_label || raw.cff.final_type.label) && !raw.chips.cff_final_type_chip_label){
-  raw.chips.cff_final_type_chip_label = raw.cff.final_type.chip_label || raw.cff.final_type.label;
-}
-if(raw.rc && raw.rc.reasoning_control_distribution && raw.rc.reasoning_control_distribution.final_determination && !raw.chips.rc_final_determination){
-  raw.chips.rc_final_determination = raw.rc.reasoning_control_distribution.final_determination;
-}
-if(raw.rfs && raw.rfs.top_groups && raw.rfs.top_groups[0] && raw.rfs.top_groups[0].group_name && !raw.chips.rfs_top_group_name){
-  raw.chips.rfs_top_group_name = raw.rfs.top_groups[0].group_name;
-}
-
-// 3) UI labels
-window.NP_UI_LABELS = (envelope && envelope.ui_labels) ? envelope.ui_labels : ((raw && raw.ui_labels) ? raw.ui_labels : {});
-
-// 4) Single source of truth
-window.NP_REPORT = raw;
 window.REPORT_RAW = raw;
-
-// 5) Legacy object for the renderer (hero/chips mapping etc.)
-const legacy = buildLegacy(raw);
-
-// Make every historical entrypoint point to the same legacy object (report UI reads legacy),
-// while keeping raw available via NP_REPORT / REPORT_RAW.
-window.reportObject = legacy;
-window.report = legacy;
-window.REPORT = legacy;
-window.reportData = legacy;
-window.DEV_REPORT = { output: legacy };
-
+window.REPORT = buildLegacy(raw);
 
 }
 catch(e) {
@@ -2330,7 +2247,20 @@ window.renderNeuPrint = function (reportObject)  {
 
 }
 
-const REPORT = (typeof reportObject !== 'undefined' ? reportObject : null) || window.report || window.DEV_REPORT || null
+const REPORT_RAW =
+  (typeof reportObject !== 'undefined' ? reportObject : null) ||
+  window.NP_REPORT ||
+  (window.reportData && (window.reportData.output || window.reportData.report || window.reportData)) ||
+  (window.DEV_REPORT && (window.DEV_REPORT.output || window.DEV_REPORT.report || window.DEV_REPORT)) ||
+  window.report ||
+  window.reportObject ||
+  window.REPORT ||
+  null
+
+const REPORT =
+  (REPORT_RAW && typeof REPORT_RAW === 'object' && REPORT_RAW.ok === true && REPORT_RAW.output)
+    ? REPORT_RAW.output
+    : REPORT_RAW
 if (!REPORT)  {
 
   NP_DEBUG && console.warn('[NeuPrint] No report data found. Provide window.report or DEV JSON.')
@@ -3077,7 +3007,6 @@ if (window.Chart) {
 
 function renderReport(r) {
   renderHero(r)
-  renderSubmittedText(r)
   renderHeaderPills(r)
   renderExecutiveMetrics(r)
   renderSummaryPanels(r)
@@ -3092,20 +3021,6 @@ function renderReport(r) {
   renderAgencySignals(r)
   renderRoleFit(r)
   renderMetadata(r)
-}
-
-function renderSubmittedText(r){
-  try{
-    const raw = window.NP_REPORT || window.REPORT_RAW || null;
-    const txt =
-      (raw && (raw.submitted_text || (raw.meta && (raw.meta.submitted_text || raw.meta.input_text)) )) ||
-      (r && r.meta && (r.meta.submitted_text || r.meta.input_text)) ||
-      '';
-    const el = document.getElementById('unit_texts');
-    if(el){
-      el.textContent = String(txt || '');
-    }
-  }catch(_e){}
 }
 
 function renderHero(r) {
@@ -3167,19 +3082,12 @@ return bestName
 function renderHeaderPills(r) {
   const chips = r.hero && r.hero.chips ? r.hero.chips : {}
 
-  const fri = chips.fri != null ? Number(chips.fri) : Number(r?.rsl?.fri?.score ?? r?.rsl?.fri_score ?? r?.rsl?.fri ?? 0)
-  const rslLevel = chips.rsl_level || r?.rsl?.overall_level_display || ''
-  const det =
-  chips.determination ||
-  r.cff?.final_determination_label ||
-  ''
-  const control =
-  chips.control ||
-  r.agency?.control_label ||
-  r.agency?.control ||
-  r.reasoning_control?.control_pattern ||
-  ''
-  const roleFit = chips.role_fit || bestTrackName(r.role_fit?.track_scores) || ''
+  const fri = r?.rsl?.fri?.score || ''
+  const rslLevel = r?.rsl?.level?.short_name || ''
+  const det =  chips.determination ||  r?.cff?.final_type?.chip_label || ''
+  const control = r?.rc?.reasoning_control_distribution?.final_determination || ''
+
+  const roleFit = r?.rfs?.top_groups?.[0]?.group_name || ''
 
   setPill('reasoningIndexPill', fmt2(Math.max(0, Math.min(5, fri))), 'toneC')
   setPill('rslPill', rslLevel || '-', 'toneB')
@@ -4955,7 +4863,7 @@ mountChartDeferred(
     labels: roles,
     datasets: [
     {
-      label: String((window.NP_UI_LABELS && window.NP_UI_LABELS.role_fit_dataset_label) || ''),
+      label: 'fit (0 to 1)',
       data: (() => { const v = roleVals.slice(); return animate ? v : v.map(() => 0); })(),
       ...BAR_FIXED_VERTICAL,
       backgroundColor: THEME.accentD,
@@ -5241,6 +5149,46 @@ window.addEventListener('load', function(){
   statsEl.innerHTML =
     '<span class="statLabel">Words</span> ' + fmt(words) +
     ' · <span class="statLabel">Sentences</span> ' + fmt(sentences);
+})();
+</script>
+
+
+<script>
+(function(){
+  const root = window.DEV_REPORT || window.reportData || {};
+  const data = root.output || root;
+
+  const elText = document.getElementById("inputPreviewText");
+  const elToggle = document.getElementById("inputPreviewToggle");
+  const elStats = document.getElementById("inputPreviewStats");
+
+  if(!elText) return;
+
+  const fullText = (data?.meta?.input_text ?? "");
+
+  elText.textContent = fullText;
+
+  const words = fullText.trim().split(/\s+/).filter(Boolean).length;
+  const sentences = (fullText.match(/[.!?]+/g) || []).length;
+
+  if(elStats){
+    elStats.textContent = "Words " + words + " · Sentences " + sentences;
+  }
+
+  if(elToggle){
+    elText.classList.add("collapsed");
+    let expanded=false;
+    elToggle.onclick=function(){
+      expanded=!expanded;
+      if(expanded){
+        elText.classList.remove("collapsed");
+        elToggle.textContent="Collapse";
+      }else{
+        elText.classList.add("collapsed");
+        elToggle.textContent="View all";
+      }
+    }
+  }
 })();
 </script>
 
