@@ -4724,6 +4724,213 @@ export type OutputJSON2 = {
     pattern_interpretation: string;
   };
 };
+export type ReportPageJSON = {
+  meta: {
+    input_language: string;
+    generated_at_utc: string;
+    verify_url: string;
+    verification_id: string;
+    input_text: string;
+    decision_compression_quote: string;
+  };
+  rsl: {
+    level: { short_name: string; definition: string };
+    fri: { score: number; interpretation: string };
+    cohort: { percentile_0to1: number; top_percent_label: string; interpretation: string };
+    sri: { score: number; interpretation: string };
+    summary: { one_line: string; paragraph: string };
+    dimensions: Array<{ code: string; label: string; score_1to5: number; observation: string }>;
+  };
+  cff: {
+    final_type: { chip_label: string; label: string; confidence: number; interpretation: string };
+    pattern: {
+      primary_label: string;
+      secondary_label: string;
+      primary_description: string;
+      secondary_description: string;
+    };
+    labels: string[];
+    values_0to1: (number | "N/A")[];
+  };
+  rc: {
+    reasoning_control_distribution: {
+      final_determination: string;
+      Human: string;
+      Hybrid: string;
+      AI: string;
+    };
+    determination_sentence: string;
+    summary: string;
+    control_pattern: string;
+    reliability_band: string;
+    band_rationale: string;
+    observed_structural_signals: { "1": string; "2": string; "3": string; "4": string };
+    pattern_interpretation: string;
+    structural_control_signals: {
+      structural_variance: number;
+      human_rhythm_index: number;
+      transition_flow: number;
+      revision_depth: number;
+    };
+  };
+  rfs: {
+    top_groups: Array<{ group_name: string; percent: number; roles: string[]; recommended_role: string }>;
+    primary_pattern: string;
+    representative_phrase: string;
+    summary_lines: string[];
+    recommended_roles_top3: string[];
+    recommended_roles_line: string;
+    pattern_interpretation: string;
+  };
+};
+
+function buildReportPageJSON(args: {
+  output2: OutputJSON2;
+  input: any;
+  dims: RSLDimension[];
+  inputText: string;
+}): ReportPageJSON {
+  const o = args.output2;
+  const g = args.input ?? {};
+  const dims = Array.isArray(args.dims) ? args.dims : [];
+
+  const safeStr = (v: any) => String(v ?? "");
+  const safeNum = (v: any) => numOr0(v);
+
+  // RSL summary can be GPT-provided; fall back to deterministic minimal text.
+  const rslSummary = (g?.rsl?.summary ?? g?.rsl_summary ?? g?.summary ?? null) as any;
+  const oneLine = safeStr(rslSummary?.one_line ?? rslSummary?.oneLine ?? rslSummary?.one ?? "");
+  const para = safeStr(rslSummary?.paragraph ?? rslSummary?.para ?? rslSummary?.text ?? "");
+
+  const dimLabel = (code: string) => {
+    const c = String(code || "").trim().toUpperCase();
+    const map: Record<string, string> = {
+      R1: "Clarity",
+      R2: "Decomposition",
+      R3: "Support",
+      R4: "Coherence",
+      R5: "Validation",
+      R6: "Control",
+      R7: "Perspective",
+      R8: "Expansion",
+    };
+    return map[c] || c;
+  };
+
+  const dimObs = (d: any) => safeStr(d?.observation ?? d?.note ?? d?.interpretation ?? "");
+
+  const dimensions = dims.map((d: any) => ({
+    code: safeStr(d?.code),
+    label: safeStr(d?.label ?? dimLabel(d?.code)),
+    score_1to5: clamp0to5(safeNum(d?.score_1to5 ?? d?.score ?? d?.value)),
+    observation: dimObs(d),
+  }));
+
+  const metaIn = (g?.meta ?? {}) as any;
+
+  const primaryDesc =
+    safeStr((o as any)?.cff?.pattern?.definition?.primary ?? (o as any)?.cff?.pattern?.primary_description ?? "");
+  const secondaryDesc =
+    safeStr((o as any)?.cff?.pattern?.definition?.secondary ?? (o as any)?.cff?.pattern?.secondary_description ?? "");
+
+  const dist = (o as any)?.rc?.reasoning_control_distribution ?? {};
+  const detSentence =
+    safeStr(dist?.determination_sentence ?? (o as any)?.rc?.determination_sentence ?? "");
+
+  const scs = (o as any)?.rc?.structural_control_signals ?? {};
+
+  return {
+    meta: {
+      input_language: safeStr(metaIn?.input_language ?? metaIn?.lang ?? "en"),
+      generated_at_utc: new Date().toISOString(),
+      verify_url: safeStr(metaIn?.verify_url ?? metaIn?.verifyUrl ?? ""),
+      verification_id: safeStr(metaIn?.verification_id ?? metaIn?.verificationId ?? "LOCAL-TEST"),
+      input_text: safeStr(args.inputText ?? metaIn?.input_text ?? metaIn?.inputText ?? ""),
+      decision_compression_quote: safeStr(metaIn?.decision_compression_quote ?? metaIn?.decisionCompressionQuote ?? ""),
+    },
+    rsl: {
+      level: {
+        short_name: safeStr(o?.rsl?.level?.short_name),
+        definition: safeStr(o?.rsl?.level?.definition),
+      },
+      fri: {
+        score: safeNum(o?.rsl?.fri?.score),
+        interpretation: safeStr(o?.rsl?.fri?.interpretation),
+      },
+      cohort: {
+        percentile_0to1: clamp01_out(safeNum(o?.rsl?.cohort?.percentile_0to1)),
+        top_percent_label: safeStr(o?.rsl?.cohort?.top_percent_label),
+        interpretation: safeStr(o?.rsl?.cohort?.interpretation),
+      },
+      sri: {
+        score: safeNum(o?.rsl?.sri?.score),
+        interpretation: safeStr(o?.rsl?.sri?.interpretation),
+      },
+      summary: {
+        one_line: oneLine || safeStr(g?.rsl?.one_line_summary ?? ""),
+        paragraph: para || safeStr(g?.rsl?.summary_paragraph ?? ""),
+      },
+      dimensions,
+    },
+    cff: {
+      final_type: {
+        chip_label: safeStr(o?.cff?.final_type?.chip_label),
+        label: safeStr(o?.cff?.final_type?.label),
+        confidence: clamp01_out(safeNum(o?.cff?.final_type?.confidence)),
+        interpretation: safeStr(o?.cff?.final_type?.interpretation),
+      },
+      pattern: {
+        primary_label: safeStr(o?.cff?.pattern?.primary_label),
+        secondary_label: safeStr(o?.cff?.pattern?.secondary_label),
+        primary_description: primaryDesc,
+        secondary_description: secondaryDesc,
+      },
+      labels: Array.isArray(o?.cff?.labels) ? o.cff.labels.map((x) => safeStr(x)) : [],
+      values_0to1: Array.isArray(o?.cff?.values_0to1) ? o.cff.values_0to1 : [],
+    },
+    rc: {
+      reasoning_control_distribution: {
+        final_determination: safeStr(dist?.final_determination),
+        Human: safeStr(dist?.Human),
+        Hybrid: safeStr(dist?.Hybrid),
+        AI: safeStr(dist?.AI),
+      },
+      determination_sentence: detSentence,
+      summary: safeStr(o?.rc?.summary),
+      control_pattern: safeStr(o?.rc?.control_pattern),
+      reliability_band: safeStr(o?.rc?.reliability_band),
+      band_rationale: safeStr(o?.rc?.band_rationale),
+      observed_structural_signals: {
+        "1": safeStr(o?.rc?.observed_structural_signals?.["1"]),
+        "2": safeStr(o?.rc?.observed_structural_signals?.["2"]),
+        "3": safeStr(o?.rc?.observed_structural_signals?.["3"]),
+        "4": safeStr(o?.rc?.observed_structural_signals?.["4"]),
+      },
+      pattern_interpretation: safeStr(o?.rc?.pattern_interpretation),
+      structural_control_signals: {
+        structural_variance: safeNum(scs?.structural_variance),
+        human_rhythm_index: safeNum(scs?.human_rhythm_index),
+        transition_flow: safeNum(scs?.transition_flow),
+        revision_depth: safeNum(scs?.revision_depth),
+      },
+    },
+    rfs: {
+      top_groups: Array.isArray(o?.rfs?.top_groups) ? o.rfs.top_groups.map((tg: any) => ({
+        group_name: safeStr(tg?.group_name),
+        percent: safeNum(tg?.percent),
+        roles: Array.isArray(tg?.roles) ? tg.roles.map((r: any) => safeStr(r)) : [],
+        recommended_role: safeStr(tg?.recommended_role),
+      })) : [],
+      primary_pattern: safeStr(o?.rfs?.primary_pattern),
+      representative_phrase: safeStr(o?.rfs?.representative_phrase),
+      summary_lines: Array.isArray(o?.rfs?.summary_lines) ? o.rfs.summary_lines.map((x) => safeStr(x)) : [],
+      recommended_roles_top3: Array.isArray(o?.rfs?.recommended_roles_top3) ? o.rfs.recommended_roles_top3.map((x) => safeStr(x)) : [],
+      recommended_roles_line: safeStr(o?.rfs?.recommended_roles_line),
+      pattern_interpretation: safeStr(o?.rfs?.pattern_interpretation),
+    },
+  };
+}
+
 
 type AssembleArgs = {
   rslLevelObj: any;
@@ -6287,8 +6494,18 @@ export function deriveAll(input: GptBackendInput, opts: DeriveAllOptions = {}): 
   // ---------------------------------------------------------
   // 6) Output validation + coercions (NO formula changes)
   // ---------------------------------------------------------
-  coerceOutputJSON2(output);
+    coerceOutputJSON2(output);
   assertOutputJSON2(output);
 
-  return output;
+  // ---------------------------------------------------------
+  // 7) Shape into report.page_최종.html JSON contract
+  // ---------------------------------------------------------
+  const reportPageJson: ReportPageJSON = buildReportPageJSON({
+    output2: output,
+    input: g,
+    dims,
+    inputText,
+  });
+
+  return reportPageJson;
 }
