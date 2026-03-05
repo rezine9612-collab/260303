@@ -1659,80 +1659,13 @@ html.npReport-scope {
 </div>
 </div>
 <script>
-/* NP Loader Normalizer: unify DEV_REPORT / dev-report-json / reportData */
+/* NP Source Binding: fixed path, no fallbacks */
 (function () {
-  function isObj(x) { return x && typeof x === "object"; }
-
-  function looksLikeReport(x) {
-    if (!isObj(x)) return false;
-    // If any of these exist, it is probably already the report object
-    return (
-      isObj(x.meta) ||
-      isObj(x.rsl) ||
-      isObj(x.cff) ||
-      isObj(x.rc) ||
-      isObj(x.rfs) ||
-      typeof x.submitted_text === "string"
-    );
-  }
-
-  function unwrapOutput(x) {
-    // Unwrap common wrappers like { ok:true, output:{...} } or { output:{ output:{...} } }
-    let cur = x;
-    for (let i = 0; i < 4; i++) {
-      if (!isObj(cur)) break;
-
-      // If it already looks like the report, stop
-      if (looksLikeReport(cur)) break;
-
-      // Prefer `output` if present and is an object
-      if (isObj(cur.output)) {
-        cur = cur.output;
-        continue;
-      }
-
-      break;
-    }
-    return cur;
-  }
-
-  let data = null;
-
-  // 1) Runtime injection candidates (Vercel app often sets one of these)
-  const candidates = [
-    (window.DEV_REPORT && window.DEV_REPORT.output),
-    window.NP_REPORT,
-    window.reportData,
-    (window.report && window.report.output),
-    window.report
-  ];
-
-  for (let i = 0; i < candidates.length; i++) {
-    const c = candidates[i];
-    if (isObj(c)) { data = c; break; }
-  }
-
-  // 2) Embedded JSON fallback (dev-report-json)
-  if (!data) {
-    const el = document.getElementById("dev-report-json");
-    if (el && el.textContent && el.textContent.trim()) {
-      try { data = JSON.parse(el.textContent); } catch (e) { data = null; }
-    }
-  }
-
-  // 3) Normalize wrappers
-  data = unwrapOutput(data);
-
-  // 4) Never allow null
-  if (!isObj(data)) data = { meta: {} };
-
-  // Canonical single source of truth
+  const data = (window.DEV_REPORT && window.DEV_REPORT.output) ? window.DEV_REPORT.output : {};
   window.NP_REPORT = data;
-
-  // Backward compatible aliases, all point to the same object
-  window.DEV_REPORT = { output: data };
   window.reportData = data;
   window.report = { output: data };
+  window.DEV_REPORT = { output: data };
 })();
 </script>
 
@@ -1971,9 +1904,7 @@ return legacy;
 
 try {
 
-  const el = document.getElementById('dev-report-json');
-  if(!el || !el.textContent) throw new Error('[NeuPrint] dev-report-json missing');
-  const raw = JSON.parse(el.textContent);
+  const raw = window.NP_REPORT || (window.DEV_REPORT && window.DEV_REPORT.output) || {};
   window.NP_UI_LABELS = (raw && raw.ui_labels) ? raw.ui_labels : {};
 
   [
@@ -5013,18 +4944,16 @@ boot()
 ;(function () {
   function getReportData(){
     try{
-      if(typeof window !== 'undefined' && window.REPORT && typeof window.REPORT === 'object'){
-        return window.REPORT;
-      }
-    const el = document.getElementById('dev-report-json');
-    if(el && el.textContent){
-      return JSON.parse(el.textContent);
+      if(typeof window === 'undefined') return null;
+      if(window.NP_REPORT && typeof window.NP_REPORT === 'object') return window.NP_REPORT;
+      if(window.DEV_REPORT && window.DEV_REPORT.output && typeof window.DEV_REPORT.output === 'object') return window.DEV_REPORT.output;
+      if(window.reportData && typeof window.reportData === 'object') return window.reportData;
+      if(window.report && window.report.output && typeof window.report.output === 'object') return window.report.output;
+    }catch(e){
+      NP_DEBUG && console.error('[NeuPrint] Failed to load report data', e);
     }
-}catch(e){
-NP_DEBUG && console.error('[NeuPrint] Failed to load report data', e);
-}
-return null;
-}
+    return null;
+  }
 function run() {
   const data = getReportData() || window.report || window.DEV_REPORT || null
   if (data) {
