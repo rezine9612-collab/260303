@@ -6290,5 +6290,9 @@ export function deriveAll(input: GptBackendInput, opts: DeriveAllOptions = {}): 
   coerceOutputJSON2(output);
   assertOutputJSON2(output);
 
+  // Report UI reads submitted text from meta.input_text (single canonical location)
+  (output as any).meta = (output as any).meta || {};
+  if (!(output as any).meta.input_text) (output as any).meta.input_text = inputText;
+
   return output;
 }
