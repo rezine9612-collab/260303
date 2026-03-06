@@ -4,7 +4,7 @@ import path from "path"
 
 export async function GET() {
 
-  const reportPath = path.join(process.cwd(), "public", "report.PATCHED_v3.html")
+  const reportPath = path.join(process.cwd(), "public", "report.html")
 
   let html = fs.readFileSync(reportPath, "utf8")
 
