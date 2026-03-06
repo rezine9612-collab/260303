@@ -1660,28 +1660,57 @@ html.npReport-scope {
 </div>
 <script id="dev-report-json" type="application/json"></script>
 <script>
-/* NP Loader: single canonical source = window.NP_REPORT */
+/* NP Loader: prefer analyze result from browser storage, then fallback to embedded JSON */
 (function () {
-  let data = null;
-
-  // 1) If the caller injected window.NP_REPORT already, keep it.
-  if (window.NP_REPORT && typeof window.NP_REPORT === "object") {
-    data = window.NP_REPORT;
-  }
-
-  // 2) Otherwise parse embedded JSON (dev-report-json) and assign it to window.NP_REPORT.
-  if (!data) {
-    const el = document.getElementById("dev-report-json");
-    if (el && el.textContent && el.textContent.trim()) {
-      try { data = JSON.parse(el.textContent); } catch (e) { data = null; }
+  function tryParse(value) {
+    try {
+      return JSON.parse(value);
+    } catch (e) {
+      return null;
     }
   }
 
-  // 3) Never allow null
-  if (!data) data = { meta: {} };
+  function loadRawReport() {
+    if (window.NP_REPORT_RAW && typeof window.NP_REPORT_RAW === "object") return window.NP_REPORT_RAW;
+    if (window.NP_REPORT && typeof window.NP_REPORT === "object" && (window.NP_REPORT.meta || window.NP_REPORT.rsl || window.NP_REPORT.cff || window.NP_REPORT.rc || window.NP_REPORT.rfs)) {
+      return window.NP_REPORT;
+    }
 
-  // Canonical single source of truth
-  window.NP_REPORT = data;
+    try {
+      const ss = sessionStorage.getItem("np_report_json");
+      if (ss && ss.trim()) {
+        const parsed = tryParse(ss);
+        if (parsed) return parsed;
+      }
+    } catch (e) {}
+
+    try {
+      const ls = localStorage.getItem("np_report_json");
+      if (ls && ls.trim()) {
+        const parsed = tryParse(ls);
+        if (parsed) return parsed;
+      }
+    } catch (e) {}
+
+    try {
+      if (typeof window.name === "string" && window.name.indexOf("NP_REPORT:") === 0) {
+        const parsed = tryParse(window.name.slice("NP_REPORT:".length));
+        if (parsed) return parsed;
+      }
+    } catch (e) {}
+
+    const el = document.getElementById("dev-report-json");
+    if (el && el.textContent && el.textContent.trim()) {
+      const parsed = tryParse(el.textContent);
+      if (parsed) return parsed;
+    }
+
+    return { meta: {} };
+  }
+
+  window.__NP_TRY_PARSE = tryParse;
+  window.__NP_LOAD_RAW_REPORT = loadRawReport;
+  window.NP_REPORT_RAW = loadRawReport();
 })();
 </script>
 
@@ -1920,9 +1949,9 @@ return legacy;
 
 try {
 
-  const el = document.getElementById('dev-report-json');
-  if(!el || !el.textContent) throw new Error('[NeuPrint] dev-report-json missing');
-  const raw = JSON.parse(el.textContent);
+  const raw = (typeof window.__NP_LOAD_RAW_REPORT === 'function')
+    ? window.__NP_LOAD_RAW_REPORT()
+    : (window.NP_REPORT_RAW || { meta: {} });
   window.NP_UI_LABELS = (raw && raw.ui_labels) ? raw.ui_labels : {};
 
   [
@@ -4961,21 +4990,23 @@ boot()
 
 ;(function () {
   function getReportData(){
-  try{
-    if(typeof window !== 'undefined' && window.NP_REPORT && typeof window.NP_REPORT === 'object'){
-      return window.NP_REPORT;
+    try{
+      if(typeof window !== 'undefined' && window.NP_REPORT && typeof window.NP_REPORT === 'object' && window.NP_REPORT.hero){
+        return window.NP_REPORT;
+      }
+      const raw = (typeof window.__NP_LOAD_RAW_REPORT === 'function')
+        ? window.__NP_LOAD_RAW_REPORT()
+        : (window.NP_REPORT_RAW || null);
+      if(raw){
+        window.NP_REPORT_RAW = raw;
+        window.NP_REPORT = (typeof buildLegacy === 'function') ? buildLegacy(raw) : raw;
+        return window.NP_REPORT;
+      }
+    }catch(e){
+      NP_DEBUG && console.error('[NeuPrint] Failed to load report data', e);
     }
-    const el = document.getElementById('dev-report-json');
-    if(el && el.textContent && el.textContent.trim()){
-      const parsed = JSON.parse(el.textContent);
-      window.NP_REPORT = parsed;
-      return parsed;
-    }
-  }catch(e){
-    NP_DEBUG && console.error('[NeuPrint] Failed to load report data', e);
+    return null;
   }
-  return null;
-}
 function run() {
   const data = getReportData() || null
   if (data) {

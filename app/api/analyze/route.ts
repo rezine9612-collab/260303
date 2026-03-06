@@ -95,9 +95,19 @@ function toReportSchema(extraction: any, derived: any, inputText: string) {
       input_text: inputText,
       decision_compression_quote: extraction?.decision_compression_quote || ''
     },
+    chips: {
+      rsl_level_short_name: output?.rsl?.level?.short_name || '',
+      rsl_fri_score: output?.rsl?.fri?.score ?? null,
+      cff_final_type_chip_label: output?.cff?.final_type?.chip_label || output?.cff?.final_type?.label || '',
+      rc_final_determination: rcd?.final_determination || '',
+      rfs_top_group_name: Array.isArray(output?.rfs?.top_groups) && output.rfs.top_groups[0]
+        ? (output.rfs.top_groups[0].group_name || '')
+        : ''
+    },
     rsl: {
       level: {
         short_name: output?.rsl?.level?.short_name || '',
+        full_name: output?.rsl?.level?.full_name || '',
         definition: output?.rsl?.level?.definition || ''
       },
       fri: {
@@ -109,6 +119,7 @@ function toReportSchema(extraction: any, derived: any, inputText: string) {
         interpretation: output?.rsl?.cohort?.interpretation || '',
         percentile_0to1: output?.rsl?.cohort?.percentile_0to1 ?? null
       },
+      percentile_0to1: output?.rsl?.cohort?.percentile_0to1 ?? null,
       sri: {
         score: output?.rsl?.sri?.score ?? null,
         interpretation: output?.rsl?.sri?.interpretation || ''
