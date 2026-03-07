@@ -55,18 +55,16 @@
       justify-content:center;
       text-align:center;
       gap:0;
-    
-      transform: translateY(-10px);
     }
 
     html.npHome-scope .npOverlayIconWrap{
-      width:34px;
-      height:34px;
+      width:32px;
+      height:32px;
       display:flex;
       align-items:center;
       justify-content:center;
     
-      margin-bottom:10px;
+      margin-bottom:2px;
       transform: translateY(-6px);
     }
 
@@ -96,41 +94,19 @@
 
     html.npHome-scope .npOverlayTitle{
       margin:0;
-      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, Helvetica, Arial, sans-serif;
       font-size: 24px;
-      line-height: 1.15;
+      line-height:1.15;
       font-weight: 500;
       color:#0b1220;
-      min-height: 28px;
-      height: 28px;
-      position: relative;
-      overflow: hidden;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    html.npHome-scope .npOverlayText{
-      position:absolute;
-      inset:0;
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      text-align:center;
-      will-change:transform, opacity;
-      transition:transform .34s cubic-bezier(.22,1,.36,1), opacity .34s ease;
+      min-height:28px;
+      transition:opacity .22s ease, transform .22s ease;
       transform:translateY(0);
-      opacity:1;
     }
 
-    html.npHome-scope .npOverlayText.isBelow{
-      transform: translateY(14px);
-      opacity: 0;
-    }
-
-    html.npHome-scope .npOverlayText.isAbove{
-      transform: translateY(-14px);
-      opacity: 0;
+    html.npHome-scope .npOverlayTitle.isChanging{
+      opacity:0;
+      transform:translateY(8px);
     }
 
     @keyframes npSpin{
@@ -179,16 +155,12 @@ html.npHome-scope .npOverlayCard{
 }
 
 html.npHome-scope .npOverlayTitle{
-  position:relative;
+  position:static;
   left:auto;
   top:auto;
   transform:translateY(0);
   font-size:24px;
   font-weight:600;
-  min-height:28px;
-  height:28px;
-  overflow:hidden;
-  width:100%;
 }
 
 html.npHome-scope .npOverlayIconWrap{
@@ -613,23 +585,7 @@ html.npHome-scope .npOverlayIconWrap{
       opacity:1;
       transition: opacity var(--twFadeDur, 80ms) linear;
     }
-  
-
-  /* Final loader position override */
-  html.npHome-scope .npOverlayCard{
-    transform: translateY(-20px) !important;
-  }
-
-  html.npHome-scope .npOverlayIconWrap{
-    transform: translateY(4px) !important;
-  }
-
-  html.npHome-scope .npOverlayTitle{
-    margin-top: 0 !important;
-    transform: translateY(0) !important;
-  }
-
-</style>
+  </style>
 </head>
 
 <body>
@@ -731,7 +687,7 @@ html.npHome-scope .npOverlayIconWrap{
             stroke-linejoin="round"/>
         </svg>
       </div>
-      <p id="npStatusTitle" class="npOverlayTitle"><span class="npOverlayText">Analyzing</span></p>
+      <p id="npStatusTitle" class="npOverlayTitle">Analyzing</p>
     </div>
   </div>
 
@@ -819,32 +775,11 @@ html.npHome-scope .npOverlayIconWrap{
 
     function setOverlayText(nextText){
       if(!statusTitle) return;
-
-      const current = statusTitle.querySelector(".npOverlayText");
-      if(current && current.textContent === nextText) return;
-
-      if(!current){
-        const first = document.createElement("span");
-        first.className = "npOverlayText";
-        first.textContent = nextText;
-        statusTitle.innerHTML = "";
-        statusTitle.appendChild(first);
-        return;
-      }
-
-      const next = document.createElement("span");
-      next.className = "npOverlayText isBelow";
-      next.textContent = nextText;
-      statusTitle.appendChild(next);
-
-      requestAnimationFrame(()=>{
-        current.classList.add("isAbove");
-        next.classList.remove("isBelow");
-      });
-
+      statusTitle.classList.add("isChanging");
       window.setTimeout(()=>{
-        if(current && current.parentNode) current.remove();
-      }, 360);
+        statusTitle.textContent = nextText;
+        statusTitle.classList.remove("isChanging");
+      }, 140);
     }
 
     function setOverlayState(state, titleText){
@@ -857,7 +792,8 @@ html.npHome-scope .npOverlayIconWrap{
       if(!isVisible){
         clearStageTimers();
         if(successRedirectTimer){ clearTimeout(successRedirectTimer); successRedirectTimer = null; }
-        statusTitle.innerHTML = '<span class="npOverlayText">Analyzing</span>';
+        statusTitle.classList.remove("isChanging");
+        statusTitle.textContent = "Analyzing";
         return;
       }
 
@@ -875,10 +811,10 @@ html.npHome-scope .npOverlayIconWrap{
       setOverlayState("loading", "Analyzing");
       stageTimerIds.push(window.setTimeout(()=>{
         if(isSubmitting) setOverlayState("loading", "Interpreting");
-      }, 1500));
+      }, 1200));
       stageTimerIds.push(window.setTimeout(()=>{
         if(isSubmitting) setOverlayState("loading", "Evaluating");
-      }, 3000));
+      }, 2400));
     }
 
     function setActiveSample(btn){
