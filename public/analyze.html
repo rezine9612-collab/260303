@@ -15,6 +15,91 @@
       'GRAD' 0,
       'opsz' 24;
     }
+
+
+    html.npHome-scope .npOverlay{
+      position:fixed;
+      inset:0;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      background:rgba(255,255,255,0.72);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      opacity:0;
+      visibility:hidden;
+      pointer-events:none;
+      transition:opacity .22s ease, visibility .22s ease;
+      z-index:10000;
+    }
+
+    html.npHome-scope .npOverlay.isVisible{
+      opacity:1;
+      visibility:visible;
+      pointer-events:auto;
+    }
+
+    html.npHome-scope .npOverlayCard{
+      min-width:280px;
+      padding:28px 32px;
+      border-radius:18px;
+      background:rgba(255,255,255,0.78);
+      box-shadow:0 12px 40px rgba(15,23,42,.08);
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      justify-content:center;
+      text-align:center;
+      gap:16px;
+    }
+
+    html.npHome-scope .npOverlayIconWrap{
+      width:40px;
+      height:40px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+    }
+
+    html.npHome-scope .npSpinner{
+      width:22px;
+      height:22px;
+      border:3px solid rgba(17,24,39,.16);
+      border-top-color:#111827;
+      border-radius:50%;
+      animation: npSpin .7s linear infinite;
+    }
+
+    html.npHome-scope .npCheck{
+      width:28px;
+      height:28px;
+      border-radius:999px;
+      background:#000;
+      color:#fff;
+      display:none;
+      align-items:center;
+      justify-content:center;
+      font-size:18px;
+      font-weight:700;
+      line-height:1;
+    }
+
+    html.npHome-scope .npOverlay.isSuccess .npSpinner{ display:none; }
+    html.npHome-scope .npOverlay.isSuccess .npCheck{ display:flex; }
+
+    html.npHome-scope .npOverlayTitle{
+      margin:0;
+      font-size:18px;
+      line-height:1.15;
+      font-weight:600;
+      letter-spacing:-0.02em;
+      color:#0b1220;
+    }
+
+    @keyframes npSpin{
+      to{ transform: rotate(360deg); }
+    }
+
   </style> 
 
   <style>
@@ -409,7 +494,7 @@
 
           <div class="brand">
             <!-- (1) 로고: 위->아래 -->
-            <img class="brandLogo npHome-enterY" id="brandLogo" src="./images/neuprint_logo.svg" alt="NeuPrint Logo" />
+            <img class="brandLogo npHome-enterY" id="brandLogo" src="./neuprint_logo.svg" alt="NeuPrint Logo" />
 
             <!-- (1) 태그라인: 위->아래 -->
             <div class="brandline npHome-enterY" id="brandline">
@@ -476,6 +561,18 @@
     </main>
   </div>
 
+
+
+  <div id="npStatusOverlay" class="npOverlay" aria-hidden="true" role="status" aria-live="polite">
+    <div class="npOverlayCard">
+      <div class="npOverlayIconWrap" aria-hidden="true">
+        <div class="npSpinner"></div>
+        <div class="npCheck">✓</div>
+      </div>
+      <p id="npStatusTitle" class="npOverlayTitle">Analyzing</p>
+    </div>
+  </div>
+
 <script>
 (function(){
   if(!document.documentElement.classList.contains('npHome-scope')) return;
@@ -487,8 +584,21 @@
     const intakeBox = document.getElementById("intakeBox");
     const cta = document.getElementById("ctaBtn");
     const sampleBtns = Array.from(document.querySelectorAll(".sampleBtn"));
+    const statusOverlay = document.getElementById("npStatusOverlay");
+    const statusTitle = document.getElementById("npStatusTitle");
 
     let sampleSelected = false;
+    let isSubmitting = false;
+
+    function setOverlayState(state){
+      if(!statusOverlay || !statusTitle) return;
+      const isVisible = state === "loading" || state === "success";
+      statusOverlay.classList.toggle("isVisible", isVisible);
+      statusOverlay.classList.toggle("isSuccess", state === "success");
+      statusOverlay.setAttribute("aria-hidden", isVisible ? "false" : "true");
+      if(state === "loading") statusTitle.textContent = "Analyzing";
+      if(state === "success") statusTitle.textContent = "Analysis Complete";
+    }
 
     function setActiveSample(btn){
       sampleBtns.forEach(b => b.classList.remove("isActive"));
@@ -577,9 +687,11 @@
         textarea.focus();
         return;
       }
-      // Call backend API, store report JSON, then open report page
+      if(isSubmitting) return;
+      isSubmitting = true;
       cta.disabled = true;
       cta.style.opacity = "0.7";
+      setOverlayState("loading");
       try{
         const res = await fetch("/api/analyze", {
           method: "POST",
@@ -589,83 +701,28 @@
         const data = await res.json();
         if(!res.ok || !data || data.ok === false){
           const msg = (data && (data.error || data.message)) ? (data.error || data.message) : ("Request failed ("+res.status+")");
-          // Show error in debug panel (no alert)
-          const panel = document.getElementById("npDebugPanel");
-          const ta = document.getElementById("npDebugText");
-          const checks = document.getElementById("npDebugChecks");
-          const btnContinue = document.getElementById("npDebugContinue");
-          panel.style.display = "block";
-          ta.value = JSON.stringify({ ok:false, status: res.status, message: msg, raw: data }, null, 2);
-          checks.innerHTML = '<div><b>API request failed</b></div><div style="margin-top:6px; color:#b00;">'+String(msg)+'</div>';
-          btnContinue.disabled = true;
+          setOverlayState(null);
+          alert(msg);
           return;
         }
-        /* DEBUG: show full GPT JSON in-page (no truncation) */
-        const extractionObj = (data && data.extraction) ? data.extraction : null;
 
-        // Store merged report for /report (multiple channels: sessionStorage + localStorage + window.name)
         const reportObj = (data && data.report) ? data.report : data;
         const reportRaw = JSON.stringify(reportObj);
-        try{ sessionStorage.setItem("np_report_json", reportRaw); }catch(_e){ /* ignore */ }
-        try{ localStorage.setItem("np_report_json", reportRaw); }catch(_e){ /* ignore */ }
-        try{ window.name = "NP_REPORT:"+reportRaw; }catch(_e){ /* ignore */ }
+        try{ sessionStorage.setItem("np_report_json", reportRaw); }catch(_e){ }
+        try{ localStorage.setItem("np_report_json", reportRaw); }catch(_e){ }
+        try{ window.name = "NP_REPORT:"+reportRaw; }catch(_e){ }
 
-        // Render full extraction JSON in overlay panel
-        const panel = document.getElementById("npDebugPanel");
-        const ta = document.getElementById("npDebugText");
-        const checks = document.getElementById("npDebugChecks");
-        const btnCopy = document.getElementById("npDebugCopy");
-        const btnContinue = document.getElementById("npDebugContinue");
-        const btnClose = document.getElementById("npDebugClose");
-
-        function hasPath(obj, path){
-          try{
-            return path.split('.').reduce((acc,k)=> (acc && (k in acc)) ? acc[k] : undefined, obj) !== undefined;
-          }catch(_e){ return false; }
-        }
-
-        if(!extractionObj){
-          // Still show panel so we can see what came back
-          ta.value = JSON.stringify(data, null, 2);
-          checks.innerHTML = [
-            '<div><b>extraction present:</b> false</div>',
-            '<div style="margin-top:6px;">No extraction JSON returned. Check API response payload above.</div>'
-          ].join('');
-        }else{
-          ta.value = JSON.stringify(extractionObj, null, 2);
-          const okSummary = hasPath(extractionObj, "rsl.summary.one_line") && hasPath(extractionObj, "rsl.summary.paragraph");
-          const okDims = Array.isArray(extractionObj?.rsl?.dimensions) && extractionObj.rsl.dimensions.length >= 8;
-          const okQuote = ("decision_compression_quote" in extractionObj);
-          checks.innerHTML = [
-            '<div><b>extraction present:</b> true</div>',
-            '<div><b>Has rsl.summary:</b> ' + (okSummary ? 'true' : 'false') + '</div>',
-            '<div><b>Has rsl.dimensions(>=8):</b> ' + (okDims ? 'true' : 'false') + '</div>',
-            '<div><b>Has decision_compression_quote:</b> ' + (okQuote ? 'true' : 'false') + '</div>',
-            '<div style="margin-top:6px; color:#666;">Copy and review the full JSON above. When ready, continue to /report.</div>'
-          ].join('');
-        }
-
-        // wire buttons (idempotent)
-        btnCopy.onclick = async ()=>{
-          try{
-            await navigator.clipboard.writeText(ta.value);
-            btnCopy.textContent = "Copied";
-            setTimeout(()=> btnCopy.textContent = "Copy JSON", 900);
-          }catch(_e){
-            ta.focus();
-            ta.select();
-            document.execCommand("copy");
-          }
-        };
-        btnContinue.onclick = ()=>{ window.location.href = "/report"; };
-        btnClose.onclick = ()=>{ panel.style.display = "none"; };
-
-        panel.style.display = "block";
+        setOverlayState("success");
+        setTimeout(()=>{ window.location.href = "/report"; }, 700);
       }catch(e){
+        setOverlayState(null);
         alert("Failed to analyze. Check network and API key.");
       }finally{
-        cta.disabled = false;
-        cta.style.opacity = "1";
+        setTimeout(()=>{
+          cta.disabled = false;
+          cta.style.opacity = "1";
+          isSubmitting = false;
+        }, 0);
       }
     });
 
@@ -775,24 +832,7 @@
 
 
 
-  <!-- NP DEBUG PANEL: GPT Raw JSON (visible after analysis) -->
-  <div id="npDebugPanel" style="display:none; position:fixed; inset:0; background:rgba(255,255,255,0.98); z-index:9999; overflow:auto;">
-    <div style="max-width:980px; margin:24px auto; padding:16px 16px 28px 16px;">
-      <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px;">
-        <div style="font-size:18px; font-weight:700;">GPT Raw JSON</div>
-        <button id="npDebugClose" type="button" style="border:1px solid #ddd; border-radius:10px; padding:8px 12px; background:#fff; cursor:pointer;">Close</button>
-      </div>
 
-      <div id="npDebugChecks" style="font-size:13px; line-height:1.45; color:#333; margin-bottom:10px;"></div>
-
-      <textarea id="npDebugText" spellcheck="false" style="width:100%; height:60vh; border:1px solid #ddd; border-radius:12px; padding:12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; font-size:12px; line-height:1.35; resize:vertical;"></textarea>
-
-      <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:12px;">
-        <button id="npDebugCopy" type="button" style="border:1px solid #ddd; border-radius:12px; padding:10px 14px; background:#fff; cursor:pointer;">Copy JSON</button>
-        <button id="npDebugContinue" type="button" style="border:1px solid #111; border-radius:12px; padding:10px 14px; background:#111; color:#fff; cursor:pointer;">Continue → Report</button>
-      </div>
-    </div>
-  </div>
 
 </body>
 </html>
