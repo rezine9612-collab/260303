@@ -6089,7 +6089,8 @@ function deriveAllStrictCompute(input: GptBackendInput, opts: DeriveAllOptions =
   const raw: any = (g as any)?.raw_features ?? (g as any)?.raw ?? (g as any)?.rawFeatures ?? (g as any) ?? {};
   const inputText = safeStr((g as any)?.input_text ?? (g as any)?.text ?? (g as any)?.submitted_text ?? (g as any)?.essay_text ?? '');
   const rawV1 = pickRawFeaturesV1(raw);
-  const roleConfigs = (Array.isArray(opts?.roleConfigs) && opts.roleConfigs.length > 0) ? opts.roleConfigs : DEFAULT_ROLE_CONFIGS_MINIMAL;
+  const usingDefaultRoleConfigs = !(Array.isArray(opts?.roleConfigs) && opts.roleConfigs.length > 0);
+  const roleConfigs = usingDefaultRoleConfigs ? DEFAULT_ROLE_CONFIGS_MINIMAL : opts!.roleConfigs!;
 
   const rslResult = computeRSLStrict(raw, undefined, (g?.raw_signals_quotes ?? raw?.raw_signals_quotes ?? null), opts?.cohortFriList);
 
@@ -6210,7 +6211,11 @@ function deriveAllStrictCompute(input: GptBackendInput, opts: DeriveAllOptions =
           });
 
           const rfsJob = Array.isArray(roleConfigs) && roleConfigs.length > 0
-            ? computeRfsJobGroupTop3({ axes, arc_level: arcLevelNum }, roleConfigs)
+            ? computeRfsJobGroupTop3(
+                { axes, arc_level: arcLevelNum },
+                roleConfigs,
+                usingDefaultRoleConfigs ? { strictMinFilter: false } : undefined
+              )
             : { rfs: { summary_lines: [], top_groups: [], recommended_roles_top3: [], recommended_roles_line: "", pattern_interpretation: "" } };
 
           return { status: 'ok', rfsStyle, rfsJob };
