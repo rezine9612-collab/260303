@@ -1476,10 +1476,10 @@ export function computeCFF6_strict(raw: RawFeaturesV1): CFF6 {
     }
   }
 
-  const st = raw?.structure_type;
-  if (typeof st !== 'string' || !st.trim()) {
-    throw new Error('CFF requires structure_type');
-  }
+  const st: StructureType =
+    raw?.structure_type === 'hierarchical' || raw?.structure_type === 'networked'
+      ? raw.structure_type
+      : 'linear';
 
   const U = Math.max(1, Math.floor(raw.units));
   const C = Math.max(0, raw.claims);
