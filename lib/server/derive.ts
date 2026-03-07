@@ -6200,7 +6200,7 @@ function deriveAllStrictCompute(input: GptBackendInput, opts: DeriveAllOptions =
   const roleConfigs =
     Array.isArray(opts?.roleConfigs) && opts!.roleConfigs!.length > 0
       ? opts!.roleConfigs!
-      : ROLE_CONFIGS_FULL_V1;
+      : ROLE_CONFIGS_FULL_V3;
 
   const rslResult = computeRSLStrict(raw, undefined, (g?.raw_signals_quotes ?? raw?.raw_signals_quotes ?? null), opts?.cohortFriList);
 
