@@ -1484,12 +1484,12 @@ export function computeCFF6_strict(raw: RawFeaturesV1): CFF6 {
 
   const U = Math.max(1, Math.floor(raw.units));
   const C = Math.max(0, raw.claims);
-  const R = Math.max(0, raw.reasons);
-  const E = Math.max(0, raw.evidence);
-  const sub = Math.max(0, raw.sub_claims);
-  const W = Math.max(0, raw.warrants);
-  const T = Math.max(0, raw.transitions);
-  const Tok = Math.max(0, raw.transition_ok);
+  const R = Math.max(0, raw.reasons ?? 0);
+  const E = Math.max(0, raw.evidence ?? 0);
+  const sub = Math.max(0, raw.sub_claims ?? 0);
+  const W = Math.max(0, raw.warrants ?? 0);
+  const T = Math.max(0, raw.transitions ?? 0);
+  const Tok = Math.max(0, raw.transition_ok ?? 0);
   const loops = Math.max(0, raw.loops);
   const intentMarkers = Math.max(0, raw.intent_markers);
 
