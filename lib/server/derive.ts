@@ -6441,6 +6441,97 @@ function deriveStrictCfv(raw: any, cff8: CFF8 | null): { cfv: CFV | null; rcStru
   return { cfv, rcStructural };
 }
 
+
+function makeAmodeCffFinalFromCore(coreAxes: any, cffPatternObj: any): any {
+  const A = Number(coreAxes?.AAS ?? 0);
+  const F = Number(coreAxes?.CTF ?? 0);
+  const M = Number(coreAxes?.RMD ?? 0);
+  const X = Number(coreAxes?.RDX ?? 0);
+  const E = Number(coreAxes?.EDS ?? 0);
+  const I = Number(coreAxes?.IFD ?? 0);
+
+  const analyticity = clamp01(((Number.isFinite(A) ? A : 0) + (Number.isFinite(E) ? E : 0)) / 2);
+  const flow = clamp01(((Number.isFinite(F) ? F : 0) + (Number.isFinite(M) ? M : 0)) / 2);
+  const regulation = clamp01(((Number.isFinite(X) ? X : 0) + (Number.isFinite(I) ? I : 0)) / 2);
+
+  let typeCode = "T3";
+  let label = "T3. Exploratory Thinker";
+  let interpretation = "The profile shows exploratory movement and associative reasoning, with evaluation and revision still developing.";
+
+  if (analyticity >= 0.55 && regulation >= 0.55 && flow >= 0.5) {
+    typeCode = "T4";
+    label = "T4. Structured Reasoner";
+    interpretation = "The profile shows relatively balanced analytic structure, flow, and self-regulation across the six CFF axes.";
+  } else if (regulation >= 0.6) {
+    typeCode = "T2";
+    label = "T2. Reflective Regulator";
+    interpretation = "The profile shows stronger reflective control and self-monitoring than flow-driven expansion.";
+  } else if (analyticity >= 0.55 && flow < 0.5) {
+    typeCode = "T1";
+    label = "T1. Analytical Reasoner";
+    interpretation = "The profile emphasizes analytic structure over momentum, suggesting controlled but less dynamically expanding reasoning.";
+  }
+
+  const primary = String(cffPatternObj?.cff?.pattern?.primary_label ?? "");
+  const secondary = String(cffPatternObj?.cff?.pattern?.secondary_label ?? "");
+  const confidence = round2(clamp01(0.58 + 0.2 * analyticity + 0.12 * regulation + 0.1 * flow));
+
+  return {
+    cff: {
+      final_type: {
+        label,
+        type_code: typeCode,
+        chip_label: label,
+        confidence,
+        interpretation: `${interpretation} Primary observed pattern: ${primary || "N/A"}${secondary ? `; secondary: ${secondary}.` : "."}`,
+      },
+    },
+  };
+}
+
+function makeRcDeterministicFallback(cfv: any, rcStructural: any, activeIds: Set<string>): any {
+  const signals = rcStructural?.rc?.structural_control_signals ?? {};
+  const sv = Number(signals?.structural_variance ?? 0);
+  const hi = Number(signals?.human_rhythm_index ?? 0);
+  const tf = Number(signals?.transition_flow ?? 0);
+  const rd = Number(signals?.revision_depth ?? 0);
+
+  const stability = clamp01((clamp01(hi) + clamp01(tf) + clamp01(rd) + (1 - clamp01(sv))) / 4);
+  const reliabilityBand = stability >= 0.75 ? "HIGH" : stability >= 0.5 ? "MEDIUM" : "LOW";
+  const finalDetermination = hi >= 0.62 ? "Human-leaning structural profile" : hi >= 0.38 ? "Hybrid-leaning structural profile" : "AI-leaning structural profile";
+  const pattern = hi >= 0.62 ? "Deterministic human-leaning structural rhythm" : hi >= 0.38 ? "Deterministic mixed structural rhythm" : "Deterministic template-like structural rhythm";
+  const rationale = "RC distribution model was unavailable, so RC was populated from deterministic structural control signals only.";
+
+  const rcSummary = {
+    rc: {
+      summary: rationale,
+      control_pattern: pattern,
+      reliability_band: reliabilityBand,
+      band_rationale: `Band derived from structural_variance=${round2(sv)}, human_rhythm_index=${round2(hi)}, transition_flow=${round2(tf)}, revision_depth=${round2(rd)}.`,
+      pattern_interpretation: `The current RC view is a deterministic fallback. ${finalDetermination} based on observed structural rhythm and stability signals.`,
+    }
+  };
+
+  const rcObserved = activeIds.size === 0
+    ? { rc: { observed_structural_signals: { '1': '', '2': '', '3': '', '4': '' } } }
+    : toRcJson(selectObservedSignals(activeIds, reliabilityBand as any, {}));
+
+  const rcDist = {
+    rc: {
+      reasoning_control_distribution: {
+        Human: "N/A",
+        Hybrid: "N/A",
+        AI: "N/A",
+        final_determination: finalDetermination,
+        determination_sentence: `${finalDetermination}. Probabilistic RC distribution was unavailable because rcLogisticModel was not provided.`,
+      }
+    }
+  };
+
+  return { status: 'ok', rcSummary, rcObserved, rcDist, cfv };
+}
+
+
 function deriveAllStrictCompute(input: GptBackendInput, opts: DeriveAllOptions = {}): any {
   const g = input ?? ({} as any);
   const raw: any = (g as any)?.raw_features ?? (g as any)?.raw ?? (g as any)?.rawFeatures ?? (g as any) ?? {};
@@ -6461,10 +6552,13 @@ function deriveAllStrictCompute(input: GptBackendInput, opts: DeriveAllOptions =
         coreAxes.Flow = avg(coreAxes.CTF, coreAxes.RMD);
         coreAxes.MetacogRaw = avg(coreAxes.RDX, coreAxes.IFD);
         const cffPatternObj = computeCffPatternOut(coreAxes);
-        const cffFinalObj = computeFinalDeterminationCff({ indicators: {
+        const baseCffFinalObj = computeFinalDeterminationCff({ indicators: {
           'AAS': { score: coreAxes.AAS, status: 'Active' }, 'CTF': { score: coreAxes.CTF, status: 'Active' }, 'RMD': { score: coreAxes.RMD, status: 'Active' }, 'RDX': { score: coreAxes.RDX, status: 'Active' },
           'EDS': { score: coreAxes.EDS, status: 'Active' }, 'IFD': { score: coreAxes.IFD, status: 'Active' }, 'KPF-Sim': { score: null, status: 'Excluded' }, 'TPS-H': { score: null, status: 'Excluded' },
         } });
+        const cffFinalObj = String(baseCffFinalObj?.cff?.final_type?.label ?? '') === 'Insufficient data'
+          ? makeAmodeCffFinalFromCore(coreAxes, cffPatternObj)
+          : baseCffFinalObj;
         return { status: 'ok', cffUi, cff8, coreAxes, cffPatternObj, cffFinalObj };
       })()
     : makeInsufficientCff('CFF requires finite 6-axis evaluation inputs only. KPF/TPS are excluded in MVP A-mode.');
@@ -6472,18 +6566,21 @@ function deriveAllStrictCompute(input: GptBackendInput, opts: DeriveAllOptions =
   const { cfv, rcStructural } = deriveStrictCfv(raw, (cffResult as any)?.cff8 ?? null);
   const rcModel = opts?.rcLogisticModel;
   const activeIds = asSet(opts?.activeSignalIds);
-  const rcResult = ((cffResult as any)?.status === 'ok' && hasRequiredRcInputs(cfv, rcModel))
+  const rcResult = ((cffResult as any)?.status === 'ok')
     ? (() => {
-        const pH = computePHumanFromCFV(cfv as CFV, rcModel as any);
-        const pA = clamp01(1 - pH);
-        const d = normalize3(pH, pA / 2, pA / 2);
-        const distribution = { Human: pct(d.a), Hybrid: pct(d.b), AI: pct(d.c) };
-        const finalDetermination = determineLabelFromProbs(cfv as CFV, pH);
-        const rcSummary = makeRcSummaryStrict(finalDetermination, distribution);
-        const rcObserved: ObservedSignalsRcJson = activeIds.size === 0 ? { rc: { observed_structural_signals: { '1': '', '2': '', '3': '', '4': '' } } } : toRcJson(selectObservedSignals(activeIds, String(rcSummary?.rc?.reliability_band ?? 'MEDIUM') as any, {}));
-        return { status: 'ok', rcSummary, rcObserved, rcDist: { rc: { reasoning_control_distribution: { ...distribution, final_determination: finalDetermination, determination_sentence: getDeterminationSentence(finalDetermination) } } }, cfv };
+        if (hasRequiredRcInputs(cfv, rcModel)) {
+          const pH = computePHumanFromCFV(cfv as CFV, rcModel as any);
+          const pA = clamp01(1 - pH);
+          const d = normalize3(pH, pA / 2, pA / 2);
+          const distribution = { Human: pct(d.a), Hybrid: pct(d.b), AI: pct(d.c) };
+          const finalDetermination = determineLabelFromProbs(cfv as CFV, pH);
+          const rcSummary = makeRcSummaryStrict(finalDetermination, distribution);
+          const rcObserved: ObservedSignalsRcJson = activeIds.size === 0 ? { rc: { observed_structural_signals: { '1': '', '2': '', '3': '', '4': '' } } } : toRcJson(selectObservedSignals(activeIds, String(rcSummary?.rc?.reliability_band ?? 'MEDIUM') as any, {}));
+          return { status: 'ok', rcSummary, rcObserved, rcDist: { rc: { reasoning_control_distribution: { ...distribution, final_determination: finalDetermination, determination_sentence: getDeterminationSentence(finalDetermination) } } }, cfv };
+        }
+        return makeRcDeterministicFallback(cfv, rcStructural, activeIds);
       })()
-    : makeInsufficientRc('RC requires CFV vector and rcLogisticModel.');
+    : makeRcDeterministicFallback(cfv, rcStructural, activeIds);
 
   const arcLevelNum = (() => {
     const code = String((rslResult as any)?.rslLevelObj?.rsl?.level?.short_name ?? '');
@@ -6498,16 +6595,24 @@ function deriveAllStrictCompute(input: GptBackendInput, opts: DeriveAllOptions =
     authenticity: Number((cffResult as any)?.coreAxes?.IFD),
   };
 
-  const rfsResult = ((cffResult as any)?.status === 'ok' && (rslResult as any)?.status === 'ok' && hasRequiredRfsInputs((cffResult as any)?.cff8, (rslResult as any)?.rslAxes, roleConfigs))
+  const rfsResult = ((cffResult as any)?.status === 'ok' && (rslResult as any)?.status === 'ok' && (rslResult as any)?.rslAxes)
     ? (() => {
         try {
           const rfsStyle = computeRfsFromPayloadStrict({
             cff: { aas: Number((cffResult as any)?.cff8?.AAS), ctf: Number((cffResult as any)?.cff8?.CTF), rmd: Number((cffResult as any)?.cff8?.RMD), rdx: Number((cffResult as any)?.cff8?.RDX), eds: Number((cffResult as any)?.cff8?.EDS), ifd: Number((cffResult as any)?.cff8?.IFD) },
             rsl: { rsl_control: (rslResult as any).rslAxes.rsl_control, rsl_validation: (rslResult as any).rslAxes.rsl_validation, rsl_hypothesis: (rslResult as any).rslAxes.rsl_hypothesis, rsl_expansion: (rslResult as any).rslAxes.rsl_expansion },
           });
-          const rfsJob = computeRfsJobGroupTop3({ axes, arc_level: arcLevelNum }, roleConfigs);
-          if (!Array.isArray((rfsJob as any)?.rfs?.top_groups) || (rfsJob as any).rfs.top_groups.length === 0) return makeInsufficientRfs('RFS produced no eligible ranked role groups.');
+          const rfsJob = Array.isArray(roleConfigs) && roleConfigs.length > 0
+            ? computeRfsJobGroupTop3({ axes, arc_level: arcLevelNum }, roleConfigs)
+            : { rfs: { summary_lines: [], top_groups: [], recommended_roles_top3: [], recommended_roles_line: "", pattern_interpretation: "" } };
           return { status: 'ok', rfsStyle, rfsJob };
+        } catch (err: any) {
+          return makeInsufficientRfs(err?.message || 'RFS strict computation failed.');
+        }
+      })()
+    : makeInsufficientRfs('RFS style requires computed CFF axes and derived RSL axes.');
+
+  return { status: 'ok', rfsStyle, rfsJob };
         } catch (err: any) {
           return makeInsufficientRfs(err?.message || 'RFS strict computation failed.');
         }
