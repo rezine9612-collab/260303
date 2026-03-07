@@ -6409,7 +6409,7 @@ function deriveStrictCfv(raw: any, cff8: CFF8 | null): { cfv: CFV | null; rcStru
     eds: Number(cff8.EDS),
     ifd: Number(cff8.IFD),
     hi,
-    tps_hist: Number(cff8.TPS_H),
+    tps_hist: cff8.TPS_H == null ? null : Number(cff8.TPS_H),
   };
   return { cfv, rcStructural };
 }
@@ -6436,7 +6436,7 @@ function deriveAllStrictCompute(input: GptBackendInput, opts: DeriveAllOptions =
         const cffPatternObj = computeCffPatternOut(coreAxes);
         const cffFinalObj = computeFinalDeterminationCff({ indicators: {
           'AAS': { score: coreAxes.AAS, status: 'Active' }, 'CTF': { score: coreAxes.CTF, status: 'Active' }, 'RMD': { score: coreAxes.RMD, status: 'Active' }, 'RDX': { score: coreAxes.RDX, status: 'Active' },
-          'EDS': { score: coreAxes.EDS, status: 'Active' }, 'IFD': { score: coreAxes.IFD, status: 'Active' }, 'KPF-Sim': { score: null, status: 'Inactive' }, 'TPS-H': { score: null, status: 'Inactive' },
+          'EDS': { score: coreAxes.EDS, status: 'Active' }, 'IFD': { score: coreAxes.IFD, status: 'Active' }, 'KPF-Sim': { score: null, status: 'Excluded' }, 'TPS-H': { score: null, status: 'Excluded' },
         } });
         return { status: 'ok', cffUi, cff8, coreAxes, cffPatternObj, cffFinalObj };
       })()
