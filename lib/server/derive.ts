@@ -693,17 +693,32 @@ export function percentile0to1(
   friValue: number,
   cohortFriList: number[]
 ): number {
-  if (!Array.isArray(cohortFriList) || cohortFriList.length === 0) return percentile0to1FromCurve(friValue, DEFAULT_COHORT_CURVE);
+  if (!Array.isArray(cohortFriList) || cohortFriList.length === 0) {
+    return percentile0to1FromCurve(friValue, DEFAULT_COHORT_CURVE);
+  }
+
+  const finiteVals = cohortFriList.filter((x) => Number.isFinite(x));
+  if (finiteVals.length === 0) {
+    return percentile0to1FromCurve(friValue, DEFAULT_COHORT_CURVE);
+  }
+
+  const uniqueVals = Array.from(new Set(finiteVals.map((x) => Number(x))));
+  // If the fallback distribution is heavily quantized (for example only a few unique
+  // buckets like 3.0 / 4.0), the strict rank CDF becomes too step-like and can pin
+  // low FRI values to 0. In that case, fall back to the smooth default cohort curve.
+  if (uniqueVals.length <= 3) {
+    return percentile0to1FromCurve(friValue, DEFAULT_COHORT_CURVE);
+  }
 
   const v = Number.isFinite(friValue) ? friValue : 0;
   let lower = 0;
 
-  for (const x of cohortFriList) {
-    const xx = Number.isFinite(x) ? x : 0;
+  for (const x of finiteVals) {
+    const xx = Number(x);
     if (xx < v) lower += 1;
   }
 
-  return round4(lower / cohortFriList.length);
+  return round4(lower / finiteVals.length);
 }
 
 export function topPercentLabel(percentile: number): string {
@@ -6181,7 +6196,10 @@ function deriveAllStrictCompute(input: GptBackendInput, opts: DeriveAllOptions =
   const inputText = safeStr((g as any)?.input_text ?? (g as any)?.text ?? (g as any)?.submitted_text ?? (g as any)?.essay_text ?? '');
   const rawV1 = pickRawFeaturesV1(raw);
   const usingDefaultRoleConfigs = !(Array.isArray(opts?.roleConfigs) && opts.roleConfigs.length > 0);
-  const roleConfigs = Array.isArray(opts?.roleConfigs) && opts!.roleConfigs!.length > 0 ? opts!.roleConfigs! : [];
+  const roleConfigs =
+    Array.isArray(opts?.roleConfigs) && opts!.roleConfigs!.length > 0
+      ? opts!.roleConfigs!
+      : DEFAULT_ROLE_CONFIGS_MINIMAL;
 
   const rslResult = computeRSLStrict(raw, undefined, (g?.raw_signals_quotes ?? raw?.raw_signals_quotes ?? null), opts?.cohortFriList);
 
@@ -6303,13 +6321,12 @@ function deriveAllStrictCompute(input: GptBackendInput, opts: DeriveAllOptions =
             },
           });
 
-          const rfsJob = Array.isArray(roleConfigs) && roleConfigs.length > 0
-            ? computeRfsJobGroupTop3(
-                { axes, arc_level: arcLevelNum },
-                roleConfigs,
-                undefined
-              )
-            : { rfs: { summary_lines: [], top_groups: [], recommended_roles_top3: [], recommended_roles_line: "", pattern_interpretation: "" } };
+          const usingProvidedRoleConfigs = Array.isArray(opts?.roleConfigs) && opts!.roleConfigs!.length > 0;
+          const rfsJob = computeRfsJobGroupTop3(
+            { axes, arc_level: arcLevelNum },
+            roleConfigs,
+            usingProvidedRoleConfigs ? undefined : { strictMinFilter: false }
+          );
 
           return { status: 'ok', rfsStyle, rfsJob };
         } catch (err: any) {
