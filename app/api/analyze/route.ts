@@ -207,9 +207,6 @@ export async function POST(req: Request) {
         raw_signals_quotes: extraction?.raw_signals_quotes,
         input_text: inputText
       } as any,
-      {
-        enableBackendFill: true
-      }
     );
 
     const report = toReportSchema(extraction, derived, inputText);
