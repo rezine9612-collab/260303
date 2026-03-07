@@ -3135,7 +3135,7 @@ function buildReasoningControlDistributionHeuristic(cfv: CFV, ind: AgencyIndicat
         Hybrid: pct((n as any).hybrid ?? (n as any).b),
         AI: pct((n as any).ai ?? (n as any).c),
         final_determination: final,
-        determination_sentence: "The combined signal profile supports classification as human-controlled reasoning.",
+        determination_sentence: getDeterminationSentence(final),
       },
     },
   };
@@ -5909,7 +5909,11 @@ function computeRSLStrict(raw: any, dimensions: RSLDimension[] | undefined, rawS
     : { rsl: { cohort: { percentile_0to1: 0, top_percent_label: 'Unavailable', interpretation: 'Cohort comparison unavailable because cohortFriList was not provided.' } } };
   const rslSriObj = deriveRslSriFromRaw(raw ?? {});
   const rslAxes = deriveRfsAxesFromBasis(basis);
-  return { status: 'ok', friObj, rslLevelObj, rslCohortObj, rslSriObj, rslAxes, basis };
+  const summary = {
+    one_line: String(raw?.rsl?.summary?.one_line ?? ''),
+    paragraph: String(raw?.rsl?.summary?.paragraph ?? ''),
+  };
+  return { status: 'ok', friObj, rslLevelObj, rslCohortObj, rslSriObj, rslAxes, basis, summary };
 }
 function makeInsufficientRsl(reason: string): any {
   return {
@@ -6261,8 +6265,8 @@ function adaptStrictComputeToOutputJSON2(strictRes: any): OutputJSON2 {
   (output as any).rsl = {
     ...((output as any).rsl || {}),
     summary: {
-      one_line: String((strictRes as any)?.raw?.rsl?.summary?.one_line ?? (strictRes as any)?.rawV1?.rsl?.summary?.one_line ?? ''),
-      paragraph: String((strictRes as any)?.raw?.rsl?.summary?.paragraph ?? (strictRes as any)?.rawV1?.rsl?.summary?.paragraph ?? ''),
+      one_line: String((strictRes as any)?.rslResult?.summary?.one_line ?? (strictRes as any)?.raw?.rsl?.summary?.one_line ?? ''),
+      paragraph: String((strictRes as any)?.rslResult?.summary?.paragraph ?? (strictRes as any)?.raw?.rsl?.summary?.paragraph ?? ''),
     },
   };
   (output as any).meta = { ...((output as any).meta || {}), ...(strictRes?.meta || {}) };
