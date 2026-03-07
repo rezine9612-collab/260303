@@ -1,4 +1,4 @@
-import { ROLE_CONFIGS_FULL_V1 } from './roleConfigs_full_v3';
+import { ROLE_CONFIGS_FULL_V3 } from './roleConfigs_full_v3';
 
 
 /* LEGACY (deprecated helpers kept for reference only) */
