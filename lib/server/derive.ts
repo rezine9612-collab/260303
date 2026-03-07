@@ -6138,17 +6138,10 @@ function deriveAllStrictCompute(input: GptBackendInput, opts: DeriveAllOptions =
   const rcResult = ((cffResult as any)?.status === 'ok')
     ? (() => {
         const rcDist: any = !rcModel
-          ? {
-              rc: {
-                reasoning_control_distribution: {
-                  Human: "N/A",
-                  Hybrid: "N/A",
-                  AI: "N/A",
-                  final_determination: "Insufficient data",
-                  determination_sentence: "RC distribution was not computed because rcLogisticModel was missing.",
-                },
-              },
-            }
+          ? buildReasoningControlDistributionHeuristic(
+              cfv as CFV,
+              (((rcStructural as any)?.rc?.structural_control_signals ?? {}) as AgencyIndicators)
+            )
           : (() => {
               const pH = computePHumanFromCFV(cfv as CFV, rcModel as any);
               const pA = clamp01(1 - pH);
@@ -6265,6 +6258,13 @@ function adaptStrictComputeToOutputJSON2(strictRes: any): OutputJSON2 {
   });
   coerceOutputJSON2(output);
   assertOutputJSON2(output);
+  (output as any).rsl = {
+    ...((output as any).rsl || {}),
+    summary: {
+      one_line: String((strictRes as any)?.raw?.rsl?.summary?.one_line ?? (strictRes as any)?.rawV1?.rsl?.summary?.one_line ?? ''),
+      paragraph: String((strictRes as any)?.raw?.rsl?.summary?.paragraph ?? (strictRes as any)?.rawV1?.rsl?.summary?.paragraph ?? ''),
+    },
+  };
   (output as any).meta = { ...((output as any).meta || {}), ...(strictRes?.meta || {}) };
   (output as any).status = strictRes?.status ?? 'insufficient_data';
   (output as any).rsl.status = strictRes?.rslResult?.status ?? 'insufficient_data';
