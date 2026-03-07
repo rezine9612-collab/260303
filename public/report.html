@@ -72,6 +72,13 @@ html.npReport-scope {
   background: var(--bg);
   min-height: 100svh;
   overflow-y: scroll;
+  opacity: 0;
+  animation: npReportPageFadeIn 0.45s ease forwards;
+}
+@keyframes npReportPageFadeIn {
+  to {
+    opacity: 1;
+  }
 }#npReportRoot * {
   box-sizing: border-box;
 }#npReportRoot .container {
@@ -1130,7 +1137,7 @@ html.npReport-scope {
 <div class="headerTopRow">
 <div class="headerLeft">
 <div class="headerBrand">
-<img alt="NeuPrint Logo" class="brandLogo" src="./images/neuprint_logo.svg"/>
+<img alt="NeuPrint Logo" class="brandLogo" src="/images/neuprint_logo.svg"/>
 </div>
 <div class="brandline">
 <span> NeuPrint Cognitive Forensics Engine v1.1 </span>
