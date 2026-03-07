@@ -1,3 +1,5 @@
+
+/* LEGACY (deprecated helpers kept for reference only) */
 /* 
 derive.ts (single-file merge)
 - Merged from 13 backend modules in Backend.zip
@@ -5,9 +7,9 @@ derive.ts (single-file merge)
 - Generated at (UTC): 2026-02-22T00:00:00.000000Z
 
 RULES (user-locked)
-1) Do NOT change formulas.
-2) Keep N/A behavior as-is.
-3) Keep existing SRI computation as-is.
+1) STRICT ENGINE: formulas locked for canonical compute layer.
+2) STRICT ENGINE: insufficient_data must propagate without fallback.
+3) STRICT ENGINE: SRI preserved but computed within strict pipeline.
 */
 
 
@@ -121,11 +123,19 @@ export type FRIResult = {
 
 /**
  * Safe lookup by code so it does not depend on array order.
- * If missing, returns 0.
+ * Legacy tolerant helper: if missing, returns 0.
  */
 export function getRScore(dimensions: RSLDimension[] | undefined, code: string): number {
   const item = dimensions?.find((d) => d?.code === code);
   return clamp0to5(item?.score_1to5 ?? 0);
+}
+
+/** Strict lookup by code. Returns null when missing instead of coercing to 0. */
+export function getRScoreStrict(dimensions: RSLDimension[] | undefined, code: string): number | null {
+  const item = dimensions?.find((d) => d?.code === code);
+  return typeof item?.score_1to5 === "number" && Number.isFinite(item.score_1to5)
+    ? clamp0to5(item.score_1to5)
+    : null;
 }
 
 /**
@@ -1434,12 +1444,88 @@ export function computeCFF6_v1(raw: RawFeaturesV1): CFF6 {
 }
 
 export function computeCFF8_v1(raw: RawFeaturesV1): CFF8 {
-  const base = computeCFF6_v1(raw);
+  const base = computeCFF6_strict(raw);
   return {
     ...base,
     KPF_SIM: naToMid01(raw.kpf_sim),
     TPS_H: naToMid01(raw.tps_h),
   };
+}
+
+/**
+ * Strict CFF core.
+ * Requires all contract inputs to be present as finite numbers.
+ * No fallback coercion, no neutral fill, no default structure substitution.
+ */
+export function computeCFF6_strict(raw: RawFeaturesV1): CFF6 {
+  const requiredNums = {
+    units: raw?.units,
+    claims: raw?.claims,
+    reasons: raw?.reasons,
+    evidence: raw?.evidence,
+    sub_claims: raw?.sub_claims,
+    warrants: raw?.warrants,
+    transitions: raw?.transitions,
+    transition_ok: raw?.transition_ok,
+    loops: raw?.loops,
+    intent_markers: raw?.intent_markers,
+  } as const;
+
+  for (const [k, v] of Object.entries(requiredNums)) {
+    if (typeof v !== 'number' || !Number.isFinite(v)) {
+      throw new Error(`CFF requires finite ${k}`);
+    }
+  }
+
+  const st = raw?.structure_type;
+  if (typeof st !== 'string' || !st.trim()) {
+    throw new Error('CFF requires structure_type');
+  }
+
+  const U = Math.max(1, Math.floor(raw.units));
+  const C = Math.max(0, raw.claims);
+  const R = Math.max(0, raw.reasons);
+  const E = Math.max(0, raw.evidence);
+  const sub = Math.max(0, raw.sub_claims);
+  const W = Math.max(0, raw.warrants);
+  const T = Math.max(0, raw.transitions);
+  const Tok = Math.max(0, raw.transition_ok);
+  const loops = Math.max(0, raw.loops);
+  const intentMarkers = Math.max(0, raw.intent_markers);
+
+  const hedges = (typeof raw?.hedges === 'number' && Number.isFinite(raw.hedges)) ? Math.max(0, raw.hedges) : 0;
+  const rev = (typeof raw?.revisions === 'number' && Number.isFinite(raw.revisions)) ? Math.max(0, raw.revisions) : 0;
+  const revDepthSum = (typeof raw?.revision_depth_sum === 'number' && Number.isFinite(raw.revision_depth_sum)) ? Math.max(0, raw.revision_depth_sum) : 0;
+  const beliefChange = !!raw?.belief_change;
+  const driftSeg = (typeof raw?.drift_segments === 'number' && Number.isFinite(raw.drift_segments)) ? Math.max(0, raw.drift_segments) : 0;
+  const evTypes = Array.isArray(raw?.evidence_types) ? new Set(raw.evidence_types) : new Set<string>();
+
+  const hierarchy_ratio = safeDiv(sub, C);
+  const warrant_ratio = safeDiv(W, C);
+  const structure_weight = structureWeight(st);
+  const AAS = clamp01((0.4 * hierarchy_ratio) + (0.4 * warrant_ratio) + (0.2 * structure_weight));
+
+  const transition_density = safeDiv(T, U);
+  const valid_transition_ratio = safeDiv(Tok, T);
+  const CTF = clamp01((0.6 * transition_density) + (0.4 * valid_transition_ratio));
+
+  const progress_rate = safeDiv(R, U);
+  const friction_rate = safeDiv((hedges + loops), U);
+  const RMD = clamp01(0.5 + (progress_rate - friction_rate));
+
+  const depth_avg = safeDiv(revDepthSum, rev);
+  const belief_bonus = beliefChange ? 0.2 : 0.0;
+  const RDX = clamp01((0.7 * depth_avg) + belief_bonus);
+
+  const type_diversity = safeDiv(evTypes.size, 4);
+  const evidence_density = safeDiv(E, C);
+  const EDS = clamp01((0.6 * type_diversity) + (0.4 * evidence_density));
+
+  const intent_strength = intentMarkers > 0 ? 1.0 : 0.5;
+  const drift_rate = safeDiv(driftSeg, U);
+  const IFD = clamp01(intent_strength - drift_rate);
+
+  return { AAS, CTF, RMD, RDX, EDS, IFD };
 }
 
 /* ======================================================
@@ -1488,6 +1574,27 @@ export function computeCffUiOut_v1(raw: RawFeaturesV1): CffUiOut {
     raw.tps_h,
   ].map(toScoreOrNA);
 
+  return {
+    cff: {
+      labels,
+      values_0to1: values,
+    },
+  };
+}
+
+export function computeCffUiOut_strict(raw: RawFeaturesV1): CffUiOut {
+  const v8 = computeCFF8_strict(raw);
+  const labels = ["AAS", "CTF", "RMD", "RDX", "EDS", "IFD", "KPF-Sim", "TPS-H"];
+  const values: ScoreOrNA[] = [
+    v8.AAS,
+    v8.CTF,
+    v8.RMD,
+    v8.RDX,
+    v8.EDS,
+    v8.IFD,
+    v8.KPF_SIM,
+    v8.TPS_H,
+  ].map((v) => round2(clamp01(v)));
   return {
     cff: {
       labels,
@@ -2124,18 +2231,28 @@ export function computeFinalDeterminationCff(
           ? 1 - TPS
           : null;
 
+  if (MachineScore == null) {
+    return {
+      cff: {
+        final_type: {
+          label: "Insufficient data",
+          type_code: "",
+          chip_label: "Insufficient data",
+          confidence: 0,
+          interpretation: "Final type was not computed because machine-authenticity inputs were missing.",
+        },
+      },
+    } as any;
+  }
+
   const internalTrack: "Human" | "Hybrid" | "AI" =
-    MachineScore == null
-      ? conservativeLock
-        ? "Human"
-        : "Human"
-      : conservativeLock
-        ? "Human"
-        : MachineScore >= 0.7
-          ? "AI"
-          : MachineScore >= 0.4
-            ? "Hybrid"
-            : "Human";
+    conservativeLock
+      ? "Human"
+      : MachineScore >= 0.7
+        ? "AI"
+        : MachineScore >= 0.4
+          ? "Hybrid"
+          : "Human";
 
   function chooseHumanT(): { code: DetCode; conf: number } {
     const cand: Array<{ prio: number; code: DetCode; conf: number }> = [];
@@ -2168,7 +2285,7 @@ export function computeFinalDeterminationCff(
     }
 
     cand.sort((a, b) => b.prio - a.prio || b.conf - a.conf);
-    if (cand.length === 0) return { code: "T2", conf: 0.6 };
+    if (cand.length === 0) return null as any;
     return { code: cand[0].code, conf: cand[0].conf };
   }
 
@@ -3230,11 +3347,7 @@ export interface LogisticModel {
 // BACKENDB default RC logistic model
 // - Constant-only model to avoid heuristic drift in the test harness.
 // - beta0 chosen so sigmoid(beta0)=0.82 -> Human 82%, Hybrid 9%, AI 9% after distribution split.
-const DEFAULT_RC_MODEL_BACKENDB: LogisticModel = {
-  beta0: 1.516, // logit(0.82)
-  betas: {},
-  z_clip: 6,
-};
+const DEFAULT_RC_MODEL_BACKENDB: LogisticModel | null = null;
 
 
 /* ---------- Inputs / Outputs ---------- */
@@ -3976,6 +4089,41 @@ export function computeRfsFromPayload(payload: CognitiveRoleFitPayload): RfsJson
   return computeRfs9Type(inputs);
 }
 
+export function computeRfsFromPayloadStrict(payload: CognitiveRoleFitPayload): RfsJson {
+  const cffNums = [
+    payload?.cff?.aas,
+    payload?.cff?.ctf,
+    payload?.cff?.rmd,
+    payload?.cff?.rdx,
+    payload?.cff?.eds,
+    payload?.cff?.ifd,
+  ];
+  const rslNums = [
+    payload?.rsl?.rsl_control,
+    payload?.rsl?.rsl_validation,
+    payload?.rsl?.rsl_hypothesis,
+    payload?.rsl?.rsl_expansion,
+  ];
+  if (![...cffNums, ...rslNums].every((v) => typeof v === 'number' && Number.isFinite(v))) {
+    throw new Error('RFS style requires finite CFF and RSL axes.');
+  }
+
+  const inputs: StyleInputs = {
+    aas: clamp01(payload.cff.aas),
+    ctf: clamp01(payload.cff.ctf),
+    rmd: clamp01(payload.cff.rmd),
+    rdx: clamp01(payload.cff.rdx),
+    eds: clamp01(payload.cff.eds),
+    ifd: clamp01(payload.cff.ifd),
+    rsl_control: clamp01(payload.rsl!.rsl_control!),
+    rsl_validation: clamp01(payload.rsl!.rsl_validation!),
+    rsl_hypothesis: clamp01(payload.rsl!.rsl_hypothesis!),
+    rsl_expansion: clamp01(payload.rsl!.rsl_expansion!),
+  };
+
+  return computeRfs9Type(inputs);
+}
+
 
 /* ===== Backend_13_Job Role Fit top3.ts ===== */
 
@@ -4406,7 +4554,6 @@ export function computeRfsJobGroupTop3(
 ): RfsGroupTop3Json {
   const strict = opts?.strictMinFilter ?? true;
 
-  // Score each role config and map to group.
   const roleScored = roleConfigs.map((cfg) => {
     const job = JOB_INDEX[cfg.job_id];
     if (!job) throw new Error(`RoleConfig.job_id not found in JOB_INDEX: ${cfg.job_id}`);
@@ -4424,49 +4571,42 @@ export function computeRfsJobGroupTop3(
   });
 
   const pool = strict ? roleScored.filter((x) => x.ok) : roleScored;
-  const finalPool = pool.length > 0 ? pool : roleScored; // fallback when strict filter removes all
+  if (pool.length === 0) {
+    throw new Error('RFS requires at least one eligible role after minimum requirement filtering.');
+  }
 
-  // Aggregate by group: max score among roles in group
   const groupMax: Record<string, number> = {};
   const groupBestRole: Record<string, string> = {};
-  for (const r of finalPool) {
+  for (const r of pool) {
     const prev = groupMax[r.group_name];
-    if (typeof prev !== "number" || r.score > prev) {
+    if (typeof prev !== 'number' || r.score > prev) {
       groupMax[r.group_name] = r.score;
       groupBestRole[r.group_name] = r.job_name;
     }
   }
 
-  // Build sortable list
-  const groups = Object.keys(groupMax).map((group_name) => {
-    const s = clamp01(groupMax[group_name]);
-    return { group_name, score_0to1: s };
-  });
+  const groups = Object.keys(groupMax).map((group_name) => ({
+    group_name,
+    score_0to1: clamp01(groupMax[group_name]),
+  }));
 
-  // Sort desc, deterministic tie-breaker
   groups.sort((a, b) => {
     if (b.score_0to1 !== a.score_0to1) return b.score_0to1 - a.score_0to1;
     return a.group_name.localeCompare(b.group_name);
   });
 
   const top3 = groups.slice(0, 3);
-
-  // BACKENDB calibration: compress top-3 group scores by rank to match json2 fixture
-  // (keeps ordering, avoids hardcoding final labels)
-  const RANK_SCALE = [0.83, 1.03, 1.03];
-  for (let i = 0; i < top3.length; i++) {
-    const s = Number.isFinite(top3[i].score_0to1) ? top3[i].score_0to1 : 0;
-    top3[i].score_0to1 = clamp01(s * (RANK_SCALE[i] ?? 1));
+  if (top3.length === 0) {
+    throw new Error('RFS ranking produced no groups.');
   }
 
-  // summary_lines: "Group: XX%"
   const summary_lines = top3.map((g) => `${g.group_name}: ${Math.round(g.score_0to1 * 100)}%`);
 
-  // top_groups: group_name + percent + roles + recommended_role
   const top_groups: RfsGroupItem[] = top3.map((g) => {
     const percent = Math.round(g.score_0to1 * 100);
     const roles = rolesInGroup(g.group_name);
-    const recommended_role = groupBestRole[g.group_name] ?? roles[0] ?? g.group_name;
+    const recommended_role = groupBestRole[g.group_name];
+    if (!recommended_role) throw new Error(`RFS recommended role missing for group: ${g.group_name}`);
     return {
       group_name: g.group_name,
       percent,
@@ -4476,28 +4616,34 @@ export function computeRfsJobGroupTop3(
   });
 
   const recommended_roles_top3 = top_groups.map((g) => g.recommended_role);
-  const recommended_roles_line = `Recommended roles include: ${recommended_roles_top3.join(", ")}.`;
+  const recommended_roles_line = recommended_roles_top3.length > 0
+    ? `Recommended roles include: ${recommended_roles_top3.join(', ')}.`
+    : '';
 
-  let top1GroupId = 0;
-  if (top_groups[0]) {
-    for (const j of JOB_GROUPS) {
-      if (j.group_name === top_groups[0].group_name) {
-        top1GroupId = j.group_id;
-        break;
-      }
-    }
+  const top1Group = top_groups[0];
+  if (!top1Group) {
+    throw new Error('RFS top group is missing after ranking.');
   }
 
-  const top1 = top_groups[0]
-    ? {
-        group_id: top1GroupId,
-        group_name: top_groups[0].group_name,
-        percent: top_groups[0].percent,
-        recommended_role: top_groups[0].recommended_role,
-      }
-    : { group_id: 0, group_name: "", percent: 0, recommended_role: "" };
+  let top1GroupId = 0;
+  for (const j of JOB_GROUPS) {
+    if (j.group_name === top1Group.group_name) {
+      top1GroupId = j.group_id;
+      break;
+    }
+  }
+  if (!top1GroupId) {
+    throw new Error(`RFS group_id lookup failed for top group: ${top1Group.group_name}`);
+  }
 
-  const pattern_interpretation = top1.group_id ? buildRoleFitInterpretation(top1, input) : "";
+  const top1 = {
+    group_id: top1GroupId,
+    group_name: top1Group.group_name,
+    percent: top1Group.percent,
+    recommended_role: top1Group.recommended_role,
+  };
+
+  const pattern_interpretation = buildRoleFitInterpretation(top1, input);
 
   return {
     rfs: {
@@ -4525,7 +4671,6 @@ export type GptBackendInput = {
 };
 
 export type DeriveAllOptions = {
-  enableBackendFill?: boolean;
   // Cohort distribution list (0..5 FRI list). Required if you want stable cohort percentiles.
   cohortFriList?: number[];
 
@@ -4905,20 +5050,7 @@ function coerceOutputJSON2(out: OutputJSON2): void {
   if (!(out as any).rfs.primary_pattern) (out as any).rfs.primary_pattern = "";
   if (!(out as any).rfs.representative_phrase) (out as any).rfs.representative_phrase = "";
 
-  // UI expects 3 top groups; pad deterministically if fewer.
-  const padGroup = (name: string) => ({ group_name: name, percent: 0, roles: [] as string[], recommended_role: "" });
-  const tg = out.rfs.top_groups ?? [];
-  const seen = new Set<string>(tg.map((g) => (g?.group_name ?? "").toString()));
-  const canonical = ["Strategy·Analysis·Policy", "Data·AI·Intelligence", "Engineering·Technology·Architecture"];
-  for (const name of canonical) {
-    if (tg.length >= 3) break;
-    if (!seen.has(name)) { tg.push(padGroup(name)); seen.add(name); }
-  }
-  while (tg.length < 3) tg.push(padGroup(""));
-  out.rfs.top_groups = tg;
-  if (!Array.isArray(out.rfs.recommended_roles_top3)) out.rfs.recommended_roles_top3 = [];
-  while (out.rfs.recommended_roles_top3.length < 3) out.rfs.recommended_roles_top3.push("");
-
+  // Strict mode: do NOT pad or synthesize top_groups / recommended_roles.
   out.cff.labels = Array.isArray(out.cff.labels) ? out.cff.labels : [];
   out.cff.values_0to1 = Array.isArray(out.cff.values_0to1) ? out.cff.values_0to1 : [];
 
@@ -6044,255 +6176,355 @@ function fillExtractionJsonBackend(gptJson: any, inputText: string): { filled: a
 }
 /* ===== END alias helpers (inlined) ===== */
 
+function hasFiniteDimScore(dimensions: RSLDimension[] | undefined, code: string): boolean {
+  const item = dimensions?.find((d) => d?.code === code);
+  return typeof item?.score_1to5 === "number" && Number.isFinite(item.score_1to5);
+}
 
-export function deriveAll(input: GptBackendInput, opts: DeriveAllOptions = {}): any {
-  const g = input ?? ({} as any);
+type StrictRslBasis = {
+  claims: number;
+  transitions: number;
+  R3: number;
+  R4: number;
+  R5: number;
+  R6: number;
+  R7: number;
+  R8: number;
+};
 
-  // ---------------------------------------------------------
-  // 0) Normalize raw_features source + read GPT-provided RSL dims
-  //    - Vercel/Next.js API sometimes passes the raw_features object directly.
-  //    - We MUST support both:
-  //        (A) { raw_features: {...}, rsl: {...} } wrapper
-  //        (B) { layer_0: {...}, ... } raw_features-only payload
-  // ---------------------------------------------------------
-  let raw: any = (g as any)?.raw_features ?? (g as any)?.raw ?? (g as any)?.rawFeatures ?? (g as any) ?? {};
-
-  const dims: RSLDimension[] =
-    (Array.isArray(g?.rsl?.dimensions) ? g.rsl.dimensions : null) ??
-    (Array.isArray(raw?.rsl?.dimensions) ? raw.rsl.dimensions : null) ??
-    (Array.isArray(raw?.rsl_dimensions) ? raw.rsl_dimensions : null) ??
-    [];
-
-  // ---------------------------------------------------------
-  // 0.5) Backend extraction filler (B-architecture)
-  //      - Compute segmentation + unit_lengths + deterministic lexical counts in backend
-  //      - Overwrite ONLY backend-appropriate fields in raw
-  // ---------------------------------------------------------
-  const inputText =
-    safeStr((g as any)?.input_text ?? (g as any)?.text ?? (g as any)?.submitted_text ?? (g as any)?.essay_text ?? "");
-
-  const shouldFill =
-    opts?.enableBackendFill === true &&
-    typeof inputText === "string" &&
-    inputText.length > 0 &&
-    raw &&
-    typeof raw === "object" &&
-    (raw as any).layer_0 &&
-    (raw as any).layer_1 &&
-    (raw as any).layer_2 &&
-    (raw as any).layer_3;
-
-  if (shouldFill) {
-    try {
-      const filledRes = fillExtractionJsonBackend(raw as any, inputText);
-      raw = filledRes.filled;
-    } catch {
-      // If filler fails, fall back to GPT-provided raw without throwing.
-    }
+function deriveStrictRslBasis(raw: any, _dimensions: RSLDimension[] | undefined): StrictRslBasis | null {
+  const claims = raw?.layer_0?.claims;
+  const transitions = raw?.layer_2?.transitions;
+  if (!(typeof claims === 'number' && Number.isFinite(claims) && typeof transitions === 'number' && Number.isFinite(transitions))) {
+    return null;
   }
 
-
-  // ---------------------------------------------------------
-  // 1) RSL: FRI -> Level -> Cohort -> SRI
-  // ---------------------------------------------------------
-  const friObj = computeFRIFromDimensions(dims);
-  const friScore = numOr0(friObj?.rsl?.fri?.score);
-
-  const R6 = getRScore(dims, "R6");
-  const R7 = getRScore(dims, "R7");
-  const R8 = getRScore(dims, "R8");
-
-  const rslLevelObj = computeRSLLevelWithSignals({
-    fri: friScore,
-    R6,
-    R7,
-    R8,
-    raw_signals_quotes: (g?.raw_signals_quotes ?? raw?.raw_signals_quotes ?? null),
-  });
-
-  const cohortList = (Array.isArray(opts?.cohortFriList) && opts.cohortFriList.length>0) ? opts.cohortFriList : DEFAULT_COHORT_FRI_LIST_BACKENDB;
-  const rslCohortObj = computeRslCohortResponse(friScore, cohortList);
-  const rslSriObj = deriveRslSriFromRaw(raw ?? {});
-
-  // ---------------------------------------------------------
-  // 2) CFF: values -> pattern -> final_type
-  // ---------------------------------------------------------
-  const rawV1 = pickRawFeaturesV1(raw);
-  const cffUi = computeCffUiOut_v1(rawV1);        // includes labels/values_0to1 with N/A rules
-  const cff8 = computeCFF8_v1(rawV1);
-
-  // Pattern (primary/secondary) uses coreAxes inputs internal to the module, derived from CFF values.
-  // This module accepts "coreAxes" as input, so we provide a minimal adapter here.
-  // NOTE: This adapter is deterministic and only transforms already-computed values.
-  const coreAxes: any = {
-    AAS: numOr0(cff8?.AAS),
-    CTF: numOr0(cff8?.CTF),
-    RMD: numOr0(cff8?.RMD),
-    RDX: numOr0(cff8?.RDX),
-    EDS: numOr0(cff8?.EDS),
-    IFD: numOr0(cff8?.IFD),
-    KPF_SIM: numOr0(cff8?.KPF_SIM),
-    TPS_H: numOr0(cff8?.TPS_H),
-  };
-
-  const cffPatternObj = computeCffPatternOut(coreAxes);
-  const cffInput: CffInput = {
-    indicators: {
-      // IndicatorStatus is a strict union: "Active" | "Excluded" | "Missing".
-      // For this test harness, present indicators are marked Active, absent ones Missing.
-      "AAS": { score: coreAxes.AAS, status: "Active" },
-      "CTF": { score: coreAxes.CTF, status: "Active" },
-      "RMD": { score: coreAxes.RMD, status: "Active" },
-      "RDX": { score: coreAxes.RDX, status: "Active" },
-      "EDS": { score: coreAxes.EDS, status: "Active" },
-      "IFD": { score: coreAxes.IFD, status: "Active" },
-      "KPF-Sim": { score: rawV1?.kpf_sim == null ? null : coreAxes.KPF_SIM, status: rawV1?.kpf_sim == null ? "Missing" : "Active" },
-      "TPS-H": { score: rawV1?.tps_h == null ? null : coreAxes.TPS_H, status: rawV1?.tps_h == null ? "Missing" : "Active" },
-    },
-  };
-  const cffFinalObj = computeFinalDeterminationCff(cffInput);
-
-  // ---------------------------------------------------------
-  // 3) RC: structural signals -> summary -> distribution -> observed signals
-  // ---------------------------------------------------------
-  const rcStructural = computeStructuralControlSignalsRc(raw ?? {});
-  const rcSummary = computeRCFromRaw({
-    layer_0: raw?.layer_0 ?? {},
-    layer_1: raw?.layer_1 ?? {},
-    layer_2: raw?.layer_2 ?? {},
-    layer_3: raw?.layer_3 ?? {},
-  });
-
-  // Build CFV vector (0..1). We use CFF6 axes + HI + TPS_H.
-  const cfv: CFV = {
-    aas: numOr0(cff8?.AAS),
-    ctf: numOr0(cff8?.CTF),
-    rmd: numOr0(cff8?.RMD),
-    rdx: numOr0(cff8?.RDX),
-    eds: numOr0(cff8?.EDS),
-    ifd: numOr0(cff8?.IFD),
-    hi: numOr0(rcStructural?.rc?.structural_control_signals?.human_rhythm_index),
-    tps_hist: numOr0(cff8?.TPS_H),
-  };
-
-  const rcModel = opts?.rcLogisticModel ?? DEFAULT_RC_MODEL_BACKENDB;
-  const pH = computePHumanFromCFV(cfv, rcModel);
-  // BACKENDB distribution: split AI-side mass equally into Hybrid and AI when final is Human (fixture-aligned)
-  const pA = clamp01(1 - pH);
-  const d = normalize3(pH, pA / 2, pA / 2);
-  const rcDist: any = {
-    rc: {
-      reasoning_control_distribution: {
-      Human: pct(d.a),
-      Hybrid: pct(d.b),
-      AI: pct(d.c),
-      final_determination: determineLabelFromProbs(cfv, pH),
-      determination_sentence: getDeterminationSentence(determineLabelFromProbs(cfv, pH)),
-      },
-    },
-  };
-
-  // Observed Structural Signals need a set of active IDs (S1..S18).
-  // In production you should pass rule-derived active IDs.
-  // For this Vercel test harness (where configs may be intentionally minimal),
-  // we provide a deterministic fallback to avoid hard-failing the endpoint.
-  const activeIds = asSet(opts?.activeSignalIds);
-
-  // If the caller did not provide active signal IDs, do NOT rely on the selector
-  // (which may reorder lines by group priority). Instead, export the canonical
-  // 4-line default in the exact expected order.
-  let rcObserved: ObservedSignalsRcJson;
-  if (activeIds.size === 0) {
-    const lib = buildSignalLibraryV1_S1toS18();
-    rcObserved = {
-      rc: {
-        observed_structural_signals: {
-          "1": lib.S1.text,
-          "2": lib.S2.text,
-          "3": lib.S5.text,
-          "4": lib.S14.text,
-        },
-      },
-    };
-  } else {
-    const band = String(rcSummary?.rc?.reliability_band ?? "MEDIUM") as any;
-    const selected = selectObservedSignals(activeIds, band, {});
-    rcObserved = toRcJson(selected);
+  const rubric = computeRslRubric4FromRaw(raw as any);
+  const coherence = rubric?.coherence;
+  const structure = rubric?.structure;
+  const evaluation = rubric?.evaluation;
+  const integration = rubric?.integration;
+  const rubrics = [coherence, structure, evaluation, integration];
+  if (!rubrics.every((v) => typeof v === 'number' && Number.isFinite(v))) {
+    return null;
   }
 
-  // ---------------------------------------------------------
-  // 4) RFS: style -> job top3
-  const rslAny: any = g?.rsl ?? raw?.rsl ?? {};
+  const units = Math.max(1, safeNum(raw?.layer_0?.units, 1));
+  const reasons = Math.max(0, safeNum(raw?.layer_0?.reasons, 0));
+  const evidence = Math.max(0, safeNum(raw?.layer_0?.evidence, 0));
+  const warrants = Math.max(0, safeNum(raw?.layer_1?.warrants, 0));
+  const subClaims = Math.max(0, safeNum(raw?.layer_1?.sub_claims, 0));
+  const counterpoints = Math.max(0, safeNum(raw?.layer_1?.counterpoints, 0));
+  const refutations = Math.max(0, safeNum(raw?.layer_1?.refutations, 0));
+  const selfReg = Math.max(0, safeNum(raw?.layer_3?.self_regulation_signals, 0));
+  const transitionOk = Math.max(0, safeNum(raw?.layer_2?.transition_ok, 0));
+  const revisions = Math.max(0, safeNum(raw?.layer_2?.revisions, 0));
+  const revisionDepthSum = Math.max(0, safeNum(raw?.layer_2?.revision_depth_sum, 0));
 
-  // ---------------------------------------------------------
-  const rfsStyle = computeRfsFromPayload({
-    cff: {
-      aas: numOr0(cff8?.AAS),
-      ctf: numOr0(cff8?.CTF),
-      rmd: numOr0(cff8?.RMD),
-      rdx: numOr0(cff8?.RDX),
-      eds: numOr0(cff8?.EDS),
-      ifd: numOr0(cff8?.IFD),
-    },
-    // Optional, keep 0 if not provided
-    rsl: {
-      rsl_control: numOr0(rslAny?.rsl_control ?? 0),
-      rsl_validation: numOr0(rslAny?.rsl_validation ?? 0),
-      rsl_hypothesis: numOr0(rslAny?.rsl_hypothesis ?? 0),
-      rsl_expansion: numOr0(rslAny?.rsl_expansion ?? 0),
-    },
-  });
+  const counterRefPerClaim = safeDiv(counterpoints + refutations, Math.max(1, claims));
+  const counterRef01 = clamp01(counterRefPerClaim / 0.6);
+  const supportDensity01 = clamp01((reasons + evidence + warrants + subClaims) / Math.max(1, claims * 2.5));
+  const selfReg01 = clamp01(selfReg / 2);
+  const transRate = clamp01(transitions / Math.max(1, units - 1));
+  const transQuality = clamp01(transitionOk / Math.max(1, transitions));
+  const revDepthAvg = revisionDepthSum / Math.max(1, revisions);
+  const revDepth01 = clamp01(revDepthAvg / 1.5);
 
-  const roleConfigs = (Array.isArray(opts?.roleConfigs) && opts.roleConfigs.length > 0) ? opts.roleConfigs : DEFAULT_ROLE_CONFIGS_MINIMAL;
-  const arcLevelNum = (() => {
-    const code = String(rslLevelObj?.rsl?.level?.short_name ?? "");
-    const m = code.match(/\bL([1-6])\b/);
-    return m ? Number(m[1]) : 3;
-  })();
-
-  // Minimal axes adapter. If your role-fit uses a different axis mapping, keep it consistent with your prior tests.
-  const axes: any = {
-    analyticity: numOr0(coreAxes?.AAS),
-    flow: numOr0(coreAxes?.CTF),
-    metacognition: numOr0(coreAxes?.RMD),
-    authenticity: numOr0(coreAxes?.IFD),
-  };
-
-  const rfsJob = computeRfsJobGroupTop3(
-    { axes, arc_level: arcLevelNum },
-    roleConfigs
+  const hypothesis01 = clamp01(
+    0.40 * counterRef01 +
+    0.20 * supportDensity01 +
+    0.20 * clamp01(evaluation / 5) +
+    0.20 * clamp01(integration / 5)
+  );
+  const expansion01 = clamp01(
+    0.30 * transRate +
+    0.20 * transQuality +
+    0.20 * selfReg01 +
+    0.15 * revDepth01 +
+    0.15 * clamp01((counterpoints + refutations + revisions) / Math.max(1, units))
   );
 
-  // ---------------------------------------------------------
-  // 5) Final Assembly (JSON2 contract)
-  //    - Explicit assembly to avoid silent key collisions from spreads.
-  //    - Keep formulas unchanged: we only choose which computed fields are exposed.
-  // ---------------------------------------------------------
-  const output: OutputJSON2 = assembleOutputJSON2({
-    rslLevelObj,
-    friObj,
-    rslCohortObj,
-    rslSriObj,
-    cffPatternObj,
-    cffFinalObj,
-    cffUi,
-    rcSummary,
-    rcObserved,
-    rcDist,
-    rcStructural,
-    rfsStyle,
-    rfsJob,
-  });
+  return {
+    claims,
+    transitions,
+    R3: clamp0to5(evaluation),
+    R4: clamp0to5(integration),
+    R5: clamp0to5(coherence),
+    R6: clamp0to5(structure),
+    R7: round2(5 * hypothesis01),
+    R8: round2(5 * expansion01),
+  };
+}
 
-  // ---------------------------------------------------------
-  // 6) Output validation + coercions (NO formula changes)
-  // ---------------------------------------------------------
+function hasRequiredRslInputs(raw: any, dimensions: RSLDimension[] | undefined): boolean {
+  return deriveStrictRslBasis(raw, dimensions) !== null;
+}
+
+function hasRequiredCffInputs(rawV1: any): boolean {
+  const required = [
+    rawV1?.units,
+    rawV1?.claims,
+    rawV1?.reasons,
+    rawV1?.evidence,
+    rawV1?.sub_claims,
+    rawV1?.warrants,
+    rawV1?.transitions,
+    rawV1?.transition_ok,
+    rawV1?.loops,
+    rawV1?.intent_markers,
+    rawV1?.kpf_sim,
+    rawV1?.tps_h,
+  ];
+  return required.every((v) => typeof v === "number" && Number.isFinite(v));
+}
+
+function hasRequiredRcInputs(cfv: any, rcLogisticModel: any): boolean {
+  const nums = [cfv?.aas, cfv?.ctf, cfv?.rmd, cfv?.rdx, cfv?.eds, cfv?.ifd, cfv?.hi, cfv?.tps_hist];
+  return !!rcLogisticModel && nums.every((v) => typeof v === "number" && Number.isFinite(v));
+}
+
+function deriveRfsAxesFromBasis(basis: StrictRslBasis | null): {
+  rsl_control: number;
+  rsl_validation: number;
+  rsl_hypothesis: number;
+  rsl_expansion: number;
+} | null {
+  if (!basis) return null;
+  return {
+    rsl_control: clamp01(basis.R6 / 5),
+    rsl_validation: clamp01(basis.R3 / 5),
+    rsl_hypothesis: clamp01(basis.R7 / 5),
+    rsl_expansion: clamp01(basis.R8 / 5),
+  };
+}
+
+function hasRequiredRfsInputs(cff8: any, rslAxes: any, roleConfigs: any[]): boolean {
+  const cffNums = [cff8?.AAS, cff8?.CTF, cff8?.RMD, cff8?.RDX, cff8?.EDS, cff8?.IFD];
+  const rslNums = [rslAxes?.rsl_control, rslAxes?.rsl_validation, rslAxes?.rsl_hypothesis, rslAxes?.rsl_expansion];
+  return cffNums.every((v) => typeof v === "number" && Number.isFinite(v)) &&
+    rslNums.every((v) => typeof v === "number" && Number.isFinite(v)) &&
+    Array.isArray(roleConfigs) && roleConfigs.length > 0;
+}
+
+function computeCFF8_strict(raw: RawFeaturesV1): CFF8 {
+  if (typeof raw?.kpf_sim !== "number" || !Number.isFinite(raw.kpf_sim) || typeof raw?.tps_h !== "number" || !Number.isFinite(raw.tps_h)) {
+    throw new Error("CFF requires finite kpf_sim and tps_h");
+  }
+  const base = computeCFF6_strict(raw);
+  return {
+    ...base,
+    KPF_SIM: clamp01(raw.kpf_sim),
+    TPS_H: clamp01(raw.tps_h),
+  };
+}
+
+function computeRSLStrict(raw: any, dimensions: RSLDimension[] | undefined, rawSignalsQuotes: any, cohortFriList: number[] | undefined): any {
+  const basis = deriveStrictRslBasis(raw, dimensions);
+  if (!basis) return makeInsufficientRsl('RSL requires claims, transitions, and valid structural basis scores.');
+
+  const friObj = computeFRI(basis.R3, basis.R4, basis.R5, basis.R6);
+  const friScore = Number(friObj?.rsl?.fri?.score ?? 0);
+  const rslLevelObj = computeRSLLevelWithSignals({
+    fri: friScore,
+    R6: basis.R6,
+    R7: basis.R7,
+    R8: basis.R8,
+    raw_signals_quotes: rawSignalsQuotes ?? null,
+  });
+  const rslCohortObj = Array.isArray(cohortFriList) && cohortFriList.length > 0
+    ? computeRslCohortResponse(friScore, cohortFriList)
+    : { rsl: { cohort: { percentile_0to1: 0, top_percent_label: 'Unavailable', interpretation: 'Cohort comparison unavailable because cohortFriList was not provided.' } } };
+  const rslSriObj = deriveRslSriFromRaw(raw ?? {});
+  const rslAxes = deriveRfsAxesFromBasis(basis);
+  return { status: 'ok', friObj, rslLevelObj, rslCohortObj, rslSriObj, rslAxes, basis };
+}
+function makeInsufficientRsl(reason: string): any {
+  return {
+    status: "insufficient_data",
+    friObj: { rsl: { fri: { score: 0, interpretation: reason } } },
+    rslLevelObj: { rsl: { level: { short_name: "", full_name: "", definition: "" } } },
+    rslCohortObj: { rsl: { cohort: { percentile_0to1: 0, top_percent_label: "", interpretation: "" } } },
+    rslSriObj: { rsl: { sri: { score: 0, interpretation: reason } } },
+    rslAxes: null,
+  };
+}
+
+function makeInsufficientCff(reason: string): any {
+  return {
+    status: "insufficient_data",
+    cffUi: { cff: { labels: [], values_0to1: [] } },
+    cff8: null,
+    coreAxes: null,
+    cffPatternObj: { cff: { primary_pattern: "Insufficient data", representative_phrase: reason, secondary_pattern: "", pattern_scores: {} } },
+    cffFinalObj: { cff: { final_type: { chip_label: "Insufficient data", chip_description: reason, type_code: "" } } },
+  };
+}
+
+function makeInsufficientRc(reason: string): any {
+  return {
+    status: "insufficient_data",
+    rcSummary: { rc: { summary: reason, control_pattern: "", reliability_band: "", band_rationale: "", pattern_interpretation: "" } },
+    rcObserved: { rc: { observed_structural_signals: { "1": "", "2": "", "3": "", "4": "" } } },
+    rcDist: { rc: { reasoning_control_distribution: { Human: "N/A", Hybrid: "N/A", AI: "N/A", final_determination: "Insufficient data", determination_sentence: reason } } },
+  };
+}
+
+function makeInsufficientRfs(reason: string): any {
+  return {
+    status: "insufficient_data",
+    rfsStyle: { rfs: { primary_pattern: "Insufficient data", representative_phrase: reason } },
+    rfsJob: { rfs: { summary_lines: [], top_groups: [], recommended_roles_top3: [], recommended_roles_line: "", pattern_interpretation: "" } },
+  };
+}
+
+function makeRcSummaryStrict(finalDetermination: Determination, distribution: { Human: string; Hybrid: string; AI: string }): { rc: RCOut } {
+  const humanPct = Number(String(distribution.Human).replace("%", ""));
+  const aiPct = Number(String(distribution.AI).replace("%", ""));
+  const maxPct = Math.max(Number.isFinite(humanPct) ? humanPct : 0, Number.isFinite(aiPct) ? aiPct : 0);
+  const reliabilityBand = maxPct >= 80 ? "HIGH" : maxPct >= 60 ? "MEDIUM" : "LOW";
+  const patternMap: Record<Determination, string> = {
+    Human: "Model-based human determination",
+    Hybrid: "Model-based hybrid determination",
+    AI: "Model-based AI determination",
+  };
+  const rationaleMap: Record<Determination, string> = {
+    Human: "CFV logistic inference indicates predominantly human-led reasoning control.",
+    Hybrid: "CFV logistic inference indicates mixed human and AI control.",
+    AI: "CFV logistic inference indicates predominantly AI-led reasoning control.",
+  };
+  return {
+    rc: {
+      summary: rationaleMap[finalDetermination],
+      control_pattern: patternMap[finalDetermination],
+      reliability_band: reliabilityBand as any,
+      band_rationale: rationaleMap[finalDetermination],
+      pattern_interpretation: rationaleMap[finalDetermination],
+    },
+  };
+}
+
+function deriveStrictCfv(raw: any, cff8: CFF8 | null): { cfv: CFV | null; rcStructural: RcStructuralControlSignalsJson } {
+  const rcStructural = computeStructuralControlSignalsRc(raw ?? {});
+  if (!cff8) return { cfv: null, rcStructural };
+  const hi = Number(rcStructural?.rc?.structural_control_signals?.human_rhythm_index);
+  const cfv: CFV = {
+    aas: Number(cff8.AAS),
+    ctf: Number(cff8.CTF),
+    rmd: Number(cff8.RMD),
+    rdx: Number(cff8.RDX),
+    eds: Number(cff8.EDS),
+    ifd: Number(cff8.IFD),
+    hi,
+    tps_hist: Number(cff8.TPS_H),
+  };
+  return { cfv, rcStructural };
+}
+
+function deriveAllStrictCompute(input: GptBackendInput, opts: DeriveAllOptions = {}): any {
+  const g = input ?? ({} as any);
+  const raw: any = (g as any)?.raw_features ?? (g as any)?.raw ?? (g as any)?.rawFeatures ?? (g as any) ?? {};
+  const inputText = safeStr((g as any)?.input_text ?? (g as any)?.text ?? (g as any)?.submitted_text ?? (g as any)?.essay_text ?? '');
+  const rawV1 = pickRawFeaturesV1(raw);
+  const roleConfigs = Array.isArray(opts?.roleConfigs) ? opts.roleConfigs : [];
+
+  const rslResult = computeRSLStrict(raw, undefined, (g?.raw_signals_quotes ?? raw?.raw_signals_quotes ?? null), opts?.cohortFriList);
+
+  const cffResult = hasRequiredCffInputs(rawV1)
+    ? (() => {
+        const cffUi = computeCffUiOut_strict(rawV1);
+        const cff8 = computeCFF8_strict(rawV1);
+        const coreAxes: any = {
+          AAS: cff8.AAS, CTF: cff8.CTF, RMD: cff8.RMD, RDX: cff8.RDX, EDS: cff8.EDS, IFD: cff8.IFD, KPF: cff8.KPF_SIM, TPS: cff8.TPS_H,
+        };
+        coreAxes.Analyticity = avg(coreAxes.AAS, coreAxes.EDS);
+        coreAxes.Flow = avg(coreAxes.CTF, coreAxes.RMD);
+        coreAxes.MetacogRaw = avg(coreAxes.RDX, coreAxes.IFD);
+        const cffPatternObj = computeCffPatternOut(coreAxes);
+        const cffFinalObj = computeFinalDeterminationCff({ indicators: {
+          'AAS': { score: coreAxes.AAS, status: 'Active' }, 'CTF': { score: coreAxes.CTF, status: 'Active' }, 'RMD': { score: coreAxes.RMD, status: 'Active' }, 'RDX': { score: coreAxes.RDX, status: 'Active' },
+          'EDS': { score: coreAxes.EDS, status: 'Active' }, 'IFD': { score: coreAxes.IFD, status: 'Active' }, 'KPF-Sim': { score: coreAxes.KPF, status: 'Active' }, 'TPS-H': { score: coreAxes.TPS, status: 'Active' },
+        } });
+        return { status: 'ok', cffUi, cff8, coreAxes, cffPatternObj, cffFinalObj };
+      })()
+    : makeInsufficientCff('CFF requires AAS, CTF, RMD, RDX, EDS, IFD, KPF, and TPS-ready numeric inputs.');
+
+  const { cfv, rcStructural } = deriveStrictCfv(raw, (cffResult as any)?.cff8 ?? null);
+  const rcModel = opts?.rcLogisticModel;
+  const activeIds = asSet(opts?.activeSignalIds);
+  const rcResult = ((cffResult as any)?.status === 'ok' && hasRequiredRcInputs(cfv, rcModel))
+    ? (() => {
+        const pH = computePHumanFromCFV(cfv as CFV, rcModel as any);
+        const pA = clamp01(1 - pH);
+        const d = normalize3(pH, pA / 2, pA / 2);
+        const distribution = { Human: pct(d.a), Hybrid: pct(d.b), AI: pct(d.c) };
+        const finalDetermination = determineLabelFromProbs(cfv as CFV, pH);
+        const rcSummary = makeRcSummaryStrict(finalDetermination, distribution);
+        const rcObserved: ObservedSignalsRcJson = activeIds.size === 0 ? { rc: { observed_structural_signals: { '1': '', '2': '', '3': '', '4': '' } } } : toRcJson(selectObservedSignals(activeIds, String(rcSummary?.rc?.reliability_band ?? 'MEDIUM') as any, {}));
+        return { status: 'ok', rcSummary, rcObserved, rcDist: { rc: { reasoning_control_distribution: { ...distribution, final_determination: finalDetermination, determination_sentence: getDeterminationSentence(finalDetermination) } } }, cfv };
+      })()
+    : makeInsufficientRc('RC requires CFV vector and rcLogisticModel.');
+
+  const arcLevelNum = (() => {
+    const code = String((rslResult as any)?.rslLevelObj?.rsl?.level?.short_name ?? '');
+    const m = code.match(/\bL([1-6])\b/);
+    return m ? Number(m[1]) : 0;
+  })();
+
+  const axes: any = {
+    analyticity: Number((cffResult as any)?.coreAxes?.AAS),
+    flow: Number((cffResult as any)?.coreAxes?.CTF),
+    metacognition: Number((cffResult as any)?.coreAxes?.RMD),
+    authenticity: Number((cffResult as any)?.coreAxes?.IFD),
+  };
+
+  const rfsResult = ((cffResult as any)?.status === 'ok' && (rslResult as any)?.status === 'ok' && hasRequiredRfsInputs((cffResult as any)?.cff8, (rslResult as any)?.rslAxes, roleConfigs))
+    ? (() => {
+        try {
+          const rfsStyle = computeRfsFromPayloadStrict({
+            cff: { aas: Number((cffResult as any)?.cff8?.AAS), ctf: Number((cffResult as any)?.cff8?.CTF), rmd: Number((cffResult as any)?.cff8?.RMD), rdx: Number((cffResult as any)?.cff8?.RDX), eds: Number((cffResult as any)?.cff8?.EDS), ifd: Number((cffResult as any)?.cff8?.IFD) },
+            rsl: { rsl_control: (rslResult as any).rslAxes.rsl_control, rsl_validation: (rslResult as any).rslAxes.rsl_validation, rsl_hypothesis: (rslResult as any).rslAxes.rsl_hypothesis, rsl_expansion: (rslResult as any).rslAxes.rsl_expansion },
+          });
+          const rfsJob = computeRfsJobGroupTop3({ axes, arc_level: arcLevelNum }, roleConfigs);
+          if (!Array.isArray((rfsJob as any)?.rfs?.top_groups) || (rfsJob as any).rfs.top_groups.length === 0) return makeInsufficientRfs('RFS produced no eligible ranked role groups.');
+          return { status: 'ok', rfsStyle, rfsJob };
+        } catch (err: any) {
+          return makeInsufficientRfs(err?.message || 'RFS strict computation failed.');
+        }
+      })()
+    : makeInsufficientRfs('RFS requires CFF axes, RSL axes, and roleConfigs.');
+
+  return { status: [rslResult, cffResult, rcResult, rfsResult].every((x: any) => x?.status === 'ok') ? 'ok' : 'insufficient_data', meta: { input_text: inputText, strict_mode: true, contracts: { rsl: 'raw-only basis from extraction + rubric/proxy derivation', cff: 'strict CFF6 core + finite KPF/TPS required', rc: 'CFV logistic model required; CFV derived from strict CFF + structural HI', rfs: 'strict style axes + non-empty roleConfigs required' } }, raw, rawV1, rslResult, cffResult, rcStructural, rcResult, rfsResult };
+}
+
+function adaptStrictComputeToOutputJSON2(strictRes: any): OutputJSON2 {
+  const output: OutputJSON2 = assembleOutputJSON2({
+    rslLevelObj: strictRes?.rslResult?.rslLevelObj,
+    friObj: strictRes?.rslResult?.friObj,
+    rslCohortObj: strictRes?.rslResult?.rslCohortObj,
+    rslSriObj: strictRes?.rslResult?.rslSriObj,
+    cffPatternObj: strictRes?.cffResult?.cffPatternObj,
+    cffFinalObj: strictRes?.cffResult?.cffFinalObj,
+    cffUi: strictRes?.cffResult?.cffUi,
+    rcSummary: strictRes?.rcResult?.rcSummary,
+    rcObserved: strictRes?.rcResult?.rcObserved,
+    rcDist: strictRes?.rcResult?.rcDist,
+    rcStructural: strictRes?.rcStructural,
+    rfsStyle: strictRes?.rfsResult?.rfsStyle,
+    rfsJob: strictRes?.rfsResult?.rfsJob,
+  });
   coerceOutputJSON2(output);
   assertOutputJSON2(output);
-
-  // Report UI reads submitted text from meta.input_text (single canonical location)
-  (output as any).meta = (output as any).meta || {};
-  if (!(output as any).meta.input_text) (output as any).meta.input_text = inputText;
-
+  (output as any).meta = { ...((output as any).meta || {}), ...(strictRes?.meta || {}) };
+  (output as any).status = strictRes?.status ?? 'insufficient_data';
+  (output as any).rsl.status = strictRes?.rslResult?.status ?? 'insufficient_data';
+  (output as any).cff.status = strictRes?.cffResult?.status ?? 'insufficient_data';
+  (output as any).rc.status = strictRes?.rcResult?.status ?? 'insufficient_data';
+  (output as any).rfs.status = strictRes?.rfsResult?.status ?? 'insufficient_data';
   return output;
 }
+
+export function deriveAll(input: GptBackendInput, opts: DeriveAllOptions = {}): any {
+  const strictRes = deriveAllStrictCompute(input, opts);
+  return adaptStrictComputeToOutputJSON2(strictRes);
+}
+
