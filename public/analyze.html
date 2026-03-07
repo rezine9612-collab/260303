@@ -96,7 +96,7 @@
 
     html.npHome-scope .npOverlayTitle{
       margin:0;
-      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, Helvetica, Arial, sans-serif;
+      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       font-size: 24px;
       line-height:1.15;
       font-weight: 500;
@@ -108,7 +108,7 @@
 
     html.npHome-scope .npOverlayTitle.isChanging{
       opacity:0;
-      transform:translateY(8px);
+      transform:translateY(4px);
     }
 
     @keyframes npSpin{
@@ -603,55 +603,6 @@ html.npHome-scope .npOverlayIconWrap{
     transform: translateY(0) !important;
   }
 
-
-  /* Layered loader title transition */
-  html.npHome-scope .npOverlayTitle{
-    position: relative !important;
-    display: block;
-    height: 28px;
-    min-height: 28px;
-    overflow: hidden;
-    margin-top: 0 !important;
-    transform: translateY(0) !important;
-    opacity: 1 !important;
-  }
-
-  html.npHome-scope .npOverlayTitle.isChanging{
-    opacity: 1 !important;
-    transform: translateY(0) !important;
-  }
-
-  html.npHome-scope .npOverlayTitleLayer{
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    white-space: nowrap;
-    transition: transform .24s cubic-bezier(.16,1,.3,1), opacity .24s ease;
-    will-change: transform, opacity;
-  }
-
-  html.npHome-scope .npOverlayTitleLayer.isCurrent{
-    transform: translateY(0);
-    opacity: 1;
-  }
-
-  html.npHome-scope .npOverlayTitleLayer.isExit{
-    transform: translateY(12px);
-    opacity: 0;
-  }
-
-  html.npHome-scope .npOverlayTitleLayer.isEnter{
-    transform: translateY(-12px);
-    opacity: 0;
-  }
-
-  html.npHome-scope .npOverlayTitleLayer.isEnterActive{
-    transform: translateY(0);
-    opacity: 1;
-  }
-
 </style>
 </head>
 
@@ -780,12 +731,6 @@ html.npHome-scope .npOverlayIconWrap{
     const statusTitle = document.getElementById("npStatusTitle");
     const intakeMirror = document.getElementById("intakeMirror");
 
-    if(statusTitle){
-      const initialText = (statusTitle.textContent || "Analyzing").trim();
-      statusTitle.dataset.currentText = initialText;
-      statusTitle.innerHTML = '<span class="npOverlayTitleLayer isCurrent">' + initialText + '</span>';
-    }
-
     let sampleSelected = false;
     let isSubmitting = false;
     let stageTimerIds = [];
@@ -848,43 +793,11 @@ html.npHome-scope .npOverlayIconWrap{
 
     function setOverlayText(nextText){
       if(!statusTitle) return;
-
-      const currentText = (statusTitle.dataset.currentText || statusTitle.textContent || "").trim();
-      if(currentText === nextText) return;
-
-      statusTitle.dataset.currentText = nextText;
-
-      if(!statusTitle.querySelector(".npOverlayTitleLayer")){
-        statusTitle.innerHTML = "";
-        const first = document.createElement("span");
-        first.className = "npOverlayTitleLayer isCurrent";
-        first.textContent = currentText || nextText;
-        statusTitle.appendChild(first);
-        if(!currentText) return;
-      }
-
-      const currentLayer = statusTitle.querySelector(".npOverlayTitleLayer.isCurrent");
-      const nextLayer = document.createElement("span");
-      nextLayer.className = "npOverlayTitleLayer isEnter";
-      nextLayer.textContent = nextText;
-      statusTitle.appendChild(nextLayer);
-
-      requestAnimationFrame(()=>{
-        if(currentLayer){
-          currentLayer.classList.remove("isCurrent");
-          currentLayer.classList.add("isExit");
-        }
-        nextLayer.classList.remove("isEnter");
-        nextLayer.classList.add("isEnterActive");
-      });
-
+      statusTitle.classList.add("isChanging");
       window.setTimeout(()=>{
-        Array.from(statusTitle.querySelectorAll(".npOverlayTitleLayer")).forEach((el)=>{
-          if(el !== nextLayer) el.remove();
-        });
-        nextLayer.classList.remove("isEnterActive");
-        nextLayer.classList.add("isCurrent");
-      }, 240);
+        statusTitle.textContent = nextText;
+        statusTitle.classList.remove("isChanging");
+      }, 90);
     }
 
     function setOverlayState(state, titleText){
