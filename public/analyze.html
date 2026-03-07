@@ -111,15 +111,16 @@
     }
 
     html.npHome-scope .npOverlayText{
-      position: absolute;
-      left: 0;
-      right: 0;
-      top: 0;
-      display: block;
-      will-change: transform, opacity;
-      transition: transform .34s cubic-bezier(.22,1,.36,1), opacity .34s ease;
-      transform: translateY(0);
-      opacity: 1;
+      position:absolute;
+      inset:0;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      text-align:center;
+      will-change:transform, opacity;
+      transition:transform .34s cubic-bezier(.22,1,.36,1), opacity .34s ease;
+      transform:translateY(0);
+      opacity:1;
     }
 
     html.npHome-scope .npOverlayText.isBelow{
@@ -178,12 +179,16 @@ html.npHome-scope .npOverlayCard{
 }
 
 html.npHome-scope .npOverlayTitle{
-  position:static;
+  position:relative;
   left:auto;
   top:auto;
   transform:translateY(0);
   font-size:24px;
   font-weight:600;
+  min-height:28px;
+  height:28px;
+  overflow:hidden;
+  width:100%;
 }
 
 html.npHome-scope .npOverlayIconWrap{
