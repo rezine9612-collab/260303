@@ -96,42 +96,40 @@
 
     html.npHome-scope .npOverlayTitle{
       margin:0;
-      position:relative;
-      overflow:hidden;
       font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       font-size: 24px;
-      line-height:1.15;
+      line-height: 1.15;
       font-weight: 500;
       color:#0b1220;
-      min-height:28px;
-      height:28px;
-      transform:translateY(0);
+      min-height: 28px;
+      height: 28px;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
 
     html.npHome-scope .npOverlayText{
-      position:absolute;
-      inset:0;
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      white-space:nowrap;
-      transition:transform .34s cubic-bezier(.22,1,.36,1), opacity .34s ease;
-      will-change:transform, opacity;
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 0;
+      display: block;
+      will-change: transform, opacity;
+      transition: transform .34s cubic-bezier(.22,1,.36,1), opacity .34s ease;
+      transform: translateY(0);
+      opacity: 1;
     }
 
-    html.npHome-scope .npOverlayText.show{
-      transform:translateY(0);
-      opacity:1;
+    html.npHome-scope .npOverlayText.isBelow{
+      transform: translateY(14px);
+      opacity: 0;
     }
 
-    html.npHome-scope .npOverlayText.in{
-      transform:translateY(12px);
-      opacity:0;
-    }
-
-    html.npHome-scope .npOverlayText.out{
-      transform:translateY(-12px);
-      opacity:0;
+    html.npHome-scope .npOverlayText.isAbove{
+      transform: translateY(-14px);
+      opacity: 0;
     }
 
     @keyframes npSpin{
@@ -728,7 +726,7 @@ html.npHome-scope .npOverlayIconWrap{
             stroke-linejoin="round"/>
         </svg>
       </div>
-      <p id="npStatusTitle" class="npOverlayTitle">Analyzing</p>
+      <p id="npStatusTitle" class="npOverlayTitle"><span class="npOverlayText">Analyzing</span></p>
     </div>
   </div>
 
@@ -818,32 +816,30 @@ html.npHome-scope .npOverlayIconWrap{
       if(!statusTitle) return;
 
       const current = statusTitle.querySelector(".npOverlayText");
+      if(current && current.textContent === nextText) return;
 
       if(!current){
-        const span = document.createElement("span");
-        span.className = "npOverlayText show";
-        span.textContent = nextText;
-        statusTitle.textContent = "";
-        statusTitle.appendChild(span);
+        const first = document.createElement("span");
+        first.className = "npOverlayText";
+        first.textContent = nextText;
+        statusTitle.innerHTML = "";
+        statusTitle.appendChild(first);
         return;
       }
 
-      if(current.textContent === nextText) return;
-
       const next = document.createElement("span");
-      next.className = "npOverlayText in";
+      next.className = "npOverlayText isBelow";
       next.textContent = nextText;
       statusTitle.appendChild(next);
 
       requestAnimationFrame(()=>{
-        current.classList.add("out");
-        next.classList.remove("in");
-        next.classList.add("show");
+        current.classList.add("isAbove");
+        next.classList.remove("isBelow");
       });
 
       window.setTimeout(()=>{
-        if(current.parentNode) current.remove();
-      }, 340);
+        if(current && current.parentNode) current.remove();
+      }, 360);
     }
 
     function setOverlayState(state, titleText){
@@ -856,11 +852,7 @@ html.npHome-scope .npOverlayIconWrap{
       if(!isVisible){
         clearStageTimers();
         if(successRedirectTimer){ clearTimeout(successRedirectTimer); successRedirectTimer = null; }
-        statusTitle.textContent = "";
-        const resetSpan = document.createElement("span");
-        resetSpan.className = "npOverlayText show";
-        resetSpan.textContent = "Analyzing";
-        statusTitle.appendChild(resetSpan);
+        statusTitle.innerHTML = '<span class="npOverlayText">Analyzing</span>';
         return;
       }
 
