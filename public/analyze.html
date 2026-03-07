@@ -92,9 +92,9 @@
     html.npHome-scope .npOverlayTitle{
       margin:0;
       font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, Helvetica, Arial, sans-serif;
-      font-size: 27px;
+      font-size: 24px;
       line-height:1.15;
-      font-weight:600;
+      font-weight: 500;
       color:#0b1220;
       min-height:28px;
       transition:opacity .16s ease, transform .16s ease;
@@ -116,7 +116,46 @@
       }
     }
 
-  </style> 
+  
+/* NeuPrint loading layout refinement */
+html.npHome-scope .npOverlay{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+
+html.npHome-scope .npOverlayCard{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  text-align:center;
+  gap:10px;
+}
+
+html.npHome-scope .npOverlayIconWrap{
+  order:1;
+}
+
+html.npHome-scope .npOverlayTitle{
+  order:2;
+}
+
+
+html.npHome-scope .npCheck path{
+  stroke-dasharray: 24;
+  stroke-dashoffset: 24;
+}
+html.npHome-scope .npOverlay.isSuccess .npCheck path{
+  animation: npDrawCheck .34s ease forwards;
+}
+@keyframes npDrawCheck{
+  to{
+    stroke-dashoffset: 0;
+  }
+}
+
+</style> 
 
   <style>
     html.npHome-scope{
@@ -206,7 +245,7 @@
       font-size: 42px;
       line-height: 1.16;
       letter-spacing: -0.6px;
-      font-weight: 600;
+      font-weight: 500;
       max-width: 860px;
 
       /* (2) 단어 중간 줄바꿈 방지 */
@@ -417,7 +456,7 @@
       background:#fff;
       color:#0b1220;
 
-      font-weight:600;
+      font-weight: 500;
       font-size:15px;
       letter-spacing:.1px;
 
@@ -781,7 +820,7 @@
         try{ window.name = "NP_REPORT:"+reportRaw; }catch(_e){ }
 
         clearStageTimers();
-        setOverlayState("success", "Complete");
+        setOverlayState("success", "Analyzed");
         setTimeout(()=>{ window.location.href = "/report"; }, 700);
       }catch(e){
         clearStageTimers();
