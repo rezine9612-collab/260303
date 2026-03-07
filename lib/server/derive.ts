@@ -1331,10 +1331,9 @@ export type CFF6 = {
 };
 
 export type CFF8 = CFF6 & {
-  // 내부 계산에서는 기존처럼 숫자(0..1)를 유지
-  // (단, UI 출력에서는 입력이 없으면 N/A로 보여준다)
-  KPF_SIM: number;
-  TPS_H: number;
+  // MVP A안: KPF/TPS는 계산에서 제외하고 reserved slot으로만 유지
+  KPF_SIM: number | null;
+  TPS_H: number | null;
 };
 
 function structureWeight(st?: StructureType): number {
@@ -1352,8 +1351,8 @@ function structureWeight(st?: StructureType): number {
 }
 
 function naToMid01(x: number | null | undefined): number {
-  // 내부 계산용: 결측이면 0.5(중립)로 유지
-  // (UI 출력에서 "N/A" 처리할지 여부는 어댑터에서 결정)
+  // legacy helper retained for backward compatibility
+  // MVP A안에서는 KPF/TPS를 계산에서 제외하므로 사용하지 않는다
   return typeof x === "number" && Number.isFinite(x) ? clamp01(x) : 0.5;
 }
 
@@ -1444,11 +1443,11 @@ export function computeCFF6_v1(raw: RawFeaturesV1): CFF6 {
 }
 
 export function computeCFF8_v1(raw: RawFeaturesV1): CFF8 {
-  const base = computeCFF6_strict(raw);
+  const base = computeCFF6_v1(raw);
   return {
     ...base,
-    KPF_SIM: naToMid01(raw.kpf_sim),
-    TPS_H: naToMid01(raw.tps_h),
+    KPF_SIM: null,
+    TPS_H: null,
   };
 }
 
@@ -1594,7 +1593,7 @@ export function computeCffUiOut_strict(raw: RawFeaturesV1): CffUiOut {
     v8.IFD,
     v8.KPF_SIM,
     v8.TPS_H,
-  ].map((v) => round2(clamp01(v)));
+  ].map(toScoreOrNA);
   return {
     cff: {
       labels,
@@ -6272,8 +6271,6 @@ function hasRequiredCffInputs(rawV1: any): boolean {
     rawV1?.transition_ok,
     rawV1?.loops,
     rawV1?.intent_markers,
-    rawV1?.kpf_sim,
-    rawV1?.tps_h,
   ];
   return required.every((v) => typeof v === "number" && Number.isFinite(v));
 }
@@ -6307,14 +6304,11 @@ function hasRequiredRfsInputs(cff8: any, rslAxes: any, roleConfigs: any[]): bool
 }
 
 function computeCFF8_strict(raw: RawFeaturesV1): CFF8 {
-  if (typeof raw?.kpf_sim !== "number" || !Number.isFinite(raw.kpf_sim) || typeof raw?.tps_h !== "number" || !Number.isFinite(raw.tps_h)) {
-    throw new Error("CFF requires finite kpf_sim and tps_h");
-  }
   const base = computeCFF6_strict(raw);
   return {
     ...base,
-    KPF_SIM: clamp01(raw.kpf_sim),
-    TPS_H: clamp01(raw.tps_h),
+    KPF_SIM: null,
+    TPS_H: null,
   };
 }
 
@@ -6434,7 +6428,7 @@ function deriveAllStrictCompute(input: GptBackendInput, opts: DeriveAllOptions =
         const cffUi = computeCffUiOut_strict(rawV1);
         const cff8 = computeCFF8_strict(rawV1);
         const coreAxes: any = {
-          AAS: cff8.AAS, CTF: cff8.CTF, RMD: cff8.RMD, RDX: cff8.RDX, EDS: cff8.EDS, IFD: cff8.IFD, KPF: cff8.KPF_SIM, TPS: cff8.TPS_H,
+          AAS: cff8.AAS, CTF: cff8.CTF, RMD: cff8.RMD, RDX: cff8.RDX, EDS: cff8.EDS, IFD: cff8.IFD, KPF: null, TPS: null,
         };
         coreAxes.Analyticity = avg(coreAxes.AAS, coreAxes.EDS);
         coreAxes.Flow = avg(coreAxes.CTF, coreAxes.RMD);
@@ -6442,11 +6436,11 @@ function deriveAllStrictCompute(input: GptBackendInput, opts: DeriveAllOptions =
         const cffPatternObj = computeCffPatternOut(coreAxes);
         const cffFinalObj = computeFinalDeterminationCff({ indicators: {
           'AAS': { score: coreAxes.AAS, status: 'Active' }, 'CTF': { score: coreAxes.CTF, status: 'Active' }, 'RMD': { score: coreAxes.RMD, status: 'Active' }, 'RDX': { score: coreAxes.RDX, status: 'Active' },
-          'EDS': { score: coreAxes.EDS, status: 'Active' }, 'IFD': { score: coreAxes.IFD, status: 'Active' }, 'KPF-Sim': { score: coreAxes.KPF, status: 'Active' }, 'TPS-H': { score: coreAxes.TPS, status: 'Active' },
+          'EDS': { score: coreAxes.EDS, status: 'Active' }, 'IFD': { score: coreAxes.IFD, status: 'Active' }, 'KPF-Sim': { score: null, status: 'Inactive' }, 'TPS-H': { score: null, status: 'Inactive' },
         } });
         return { status: 'ok', cffUi, cff8, coreAxes, cffPatternObj, cffFinalObj };
       })()
-    : makeInsufficientCff('CFF requires AAS, CTF, RMD, RDX, EDS, IFD, KPF, and TPS-ready numeric inputs.');
+    : makeInsufficientCff('CFF requires finite 6-axis evaluation inputs only. KPF/TPS are excluded in MVP A-mode.');
 
   const { cfv, rcStructural } = deriveStrictCfv(raw, (cffResult as any)?.cff8 ?? null);
   const rcModel = opts?.rcLogisticModel;
@@ -6493,7 +6487,7 @@ function deriveAllStrictCompute(input: GptBackendInput, opts: DeriveAllOptions =
       })()
     : makeInsufficientRfs('RFS requires CFF axes, RSL axes, and roleConfigs.');
 
-  return { status: [rslResult, cffResult, rcResult, rfsResult].every((x: any) => x?.status === 'ok') ? 'ok' : 'insufficient_data', meta: { input_text: inputText, strict_mode: true, contracts: { rsl: 'raw-only basis from extraction + rubric/proxy derivation', cff: 'strict CFF6 core + finite KPF/TPS required', rc: 'CFV logistic model required; CFV derived from strict CFF + structural HI', rfs: 'strict style axes + non-empty roleConfigs required' } }, raw, rawV1, rslResult, cffResult, rcStructural, rcResult, rfsResult };
+  return { status: [rslResult, cffResult, rcResult, rfsResult].every((x: any) => x?.status === 'ok') ? 'ok' : 'insufficient_data', meta: { input_text: inputText, strict_mode: true, contracts: { rsl: 'raw-only basis from extraction + rubric/proxy derivation', cff: 'strict CFF6 evaluation core only; KPF/TPS excluded in MVP A-mode', rc: 'CFV logistic model required; CFV derived from strict CFF + structural HI', rfs: 'strict style axes + non-empty roleConfigs required' } }, raw, rawV1, rslResult, cffResult, rcStructural, rcResult, rfsResult };
 }
 
 function adaptStrictComputeToOutputJSON2(strictRes: any): OutputJSON2 {
