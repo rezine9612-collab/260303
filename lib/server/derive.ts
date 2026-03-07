@@ -1,3 +1,5 @@
+import { ROLE_CONFIGS_FULL_V1 } from './roleConfigs_full_v1';
+
 
 /* LEGACY (deprecated helpers kept for reference only) */
 /* 
@@ -2030,23 +2032,22 @@ export function computeFinalDeterminationCff(cff: any): CffOut {
     TPS: { value_0to1: cff.indicators["TPS-H"]?.score ?? null, status: ((cff.indicators["TPS-H"]?.status === "Excluded" ? "Excluded" : cff.indicators["TPS-H"]?.status) as any) ?? "Missing" },
   } });
   const label = fdLabel(det.code);
-  const chip_label = label.includes(". ") ? label.split(". ").slice(1).join(". ") : label;
-  let interpretation = chip_label + " reflects the dominant reasoning pattern inferred from the current indicator configuration.";
-  if (det.code === "T1") interpretation = "Reasoning is organized around explicit structure, evidence use, and stepwise evaluation.";
-  else if (det.code === "T2") interpretation = "Reasoning shows reflective monitoring, with attention to control, revision, and internal consistency.";
-  else if (det.code === "T3") interpretation = "Reasoning advances through exploratory association and conceptual movement more than through rigid stepwise argument.";
-  else if (det.code === "T4") interpretation = "Reasoning integrates multiple strands into a coordinated direction and broader strategic frame.";
-  else if (det.code === "T5") interpretation = "Reasoning emphasizes human expression, contextual meaning, and communicative resonance.";
-  else if (det.code === "T6") interpretation = "Reasoning is dominated by machine-like continuation patterns rather than human-led structural control.";
-  else if (det.code === "Hx-1") interpretation = "The profile suggests a human-led draft-assist pattern, with human control retained over the main reasoning path.";
-  else if (det.code === "Hx-2") interpretation = "The profile suggests a human-led structure-assist pattern, with external support shaping organization more than content.";
-  else if (det.code === "Hx-3") interpretation = "The profile suggests a human-led evidence-assist pattern, with external support concentrated on supporting material.";
-  else if (det.code === "Hx-4") interpretation = "The profile suggests a human-led reasoning-assist pattern, with external support affecting logical progression.";
-  else if (det.code === "Ax-1") interpretation = "Reasoning is dominated by template-like continuation with limited evidence of human-led structural control.";
-  else if (det.code === "Ax-2") interpretation = "Reasoning is dominated by synthesized evidence patterning rather than human-led structural development.";
-  else if (det.code === "Ax-3") interpretation = "Reasoning is dominated by stylistic emulation patterns rather than human-led structural control.";
-  else if (det.code === "Ax-4") interpretation = "Reasoning is dominated by simulated reasoning patterns with limited human-led structural control.";
-  return { cff: { final_type: { label, type_code: det.code, chip_label, confidence: round2(det.confidence_0to1), interpretation } } };
+  let interpretation = label;
+  if (det.code === "T1") interpretation = "T1. Analytical Reasoner approaches problems through structured decomposition and logical sequencing. Reasoning is driven by explicit analysis, rule-based evaluation, and clear separation of components. This pattern prioritizes correctness, internal consistency, and stepwise justification.";
+  else if (det.code === "T2") interpretation = "T2. Reflective Thinker emphasizes self-monitoring and internal revision during reasoning. This pattern frequently revisits prior assumptions, adjusts interpretations, and refines conclusions through reflection. Reasoning quality is shaped by iterative reassessment rather than linear progression.";
+  else if (det.code === "T3") interpretation = "T3. Intuitive Explorer relies on associative thinking and exploratory inference. Reasoning advances through pattern recognition, conceptual leaps, and hypothesis generation rather than explicit structure. This pattern prioritizes discovery and possibility over immediate validation.";
+  else if (det.code === "T4") interpretation = "T4. Strategic Integrator focuses on synthesizing multiple perspectives into a coherent direction. Reasoning involves alignment of goals, constraints, and long-term implications. This pattern emphasizes coordination, prioritization, and purposeful convergence.";
+  else if (det.code === "T5") interpretation = "T5. Human Expressionist centers reasoning around meaning, context, and human experience. Thought is shaped by narrative coherence, emotional nuance, and communicative clarity. This pattern prioritizes expressiveness and interpretive depth over formal structure.";
+  else if (det.code === "T6") interpretation = "T6. Machine-Dominant pattern shows strong reliance on external systems or automated reasoning flows. Decision progression often mirrors templated logic or system-driven optimization. Human agency and self-directed revision signals remain limited.";
+  else if (det.code === "Hx-1") interpretation = "Hx-1. Draft-Assist Type uses AI support primarily for initial idea formation. Human control increases in later stages through revision and refinement.";
+  else if (det.code === "Hx-2") interpretation = "Hx-2. Structure-Assist Type relies on AI to organize and scaffold reasoning. Core ideas remain human-driven, while structural clarity is externally supported.";
+  else if (det.code === "Hx-3") interpretation = "Hx-3. Evidence-Assist Type leverages AI to gather or arrange supporting material. Human reasoning determines relevance and final judgment.";
+  else if (det.code === "Hx-4") interpretation = "Hx-4. Reasoning-Assist Type involves AI participation in intermediate reasoning steps. Human oversight remains, but reasoning momentum is partially shared.";
+  else if (det.code === "Ax-1") interpretation = "Ax-1. Template Generator produces reasoning by following predefined structural patterns. Responses are consistent and organized but show limited adaptation beyond the template. Original restructuring signals are minimal.";
+  else if (det.code === "Ax-2") interpretation = "Ax-2. Evidence Synthesizer focuses on collecting and linking supporting information. Reasoning emphasizes aggregation and alignment of evidence rather than original inference. Conclusions emerge from evidence density rather than internal exploration.";
+  else if (det.code === "Ax-3") interpretation = "Ax-3. Style Emulator mirrors linguistic and structural patterns of the input or reference style. Reasoning quality depends heavily on stylistic imitation rather than autonomous decision flow.";
+  else if (det.code === "Ax-4") interpretation = "Ax-4. Reasoning Simulator reproduces the appearance of structured reasoning through iterative expansion and recombination. While transitions and revisions are present, they are driven by simulation rather than genuine internal intent formation.";
+  return { cff: { final_type: { label, type_code: det.code, chip_label: label, confidence: round2(det.confidence_0to1), interpretation } } };
 }
 /* ===== Backend_11_Structural Control Signals.ts ===== */
 
@@ -6199,7 +6200,7 @@ function deriveAllStrictCompute(input: GptBackendInput, opts: DeriveAllOptions =
   const roleConfigs =
     Array.isArray(opts?.roleConfigs) && opts!.roleConfigs!.length > 0
       ? opts!.roleConfigs!
-      : [];
+      : ROLE_CONFIGS_FULL_V1;
 
   const rslResult = computeRSLStrict(raw, undefined, (g?.raw_signals_quotes ?? raw?.raw_signals_quotes ?? null), opts?.cohortFriList);
 
@@ -6321,12 +6322,12 @@ function deriveAllStrictCompute(input: GptBackendInput, opts: DeriveAllOptions =
             },
           });
 
-          const rfsJob = roleConfigs.length > 0
-            ? computeRfsJobGroupTop3(
-                { axes, arc_level: arcLevelNum },
-                roleConfigs
-              )
-            : { rfs: { top_groups: [], summary_lines: [], recommended_roles_top3: [], recommended_roles_line: "", pattern_interpretation: "" } };
+          const usingProvidedRoleConfigs = Array.isArray(opts?.roleConfigs) && opts!.roleConfigs!.length > 0;
+          const rfsJob = computeRfsJobGroupTop3(
+            { axes, arc_level: arcLevelNum },
+            roleConfigs,
+            usingProvidedRoleConfigs ? undefined : { strictMinFilter: false }
+          );
 
           return { status: 'ok', rfsStyle, rfsJob };
         } catch (err: any) {
