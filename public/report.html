@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 
-<html class="npReport-scope" lang="ko">
+<html class="npReport-scope" lang="en">
 <head>
 <meta charset="utf-8"/>
 <meta content="width=device-width,initial-scale=1,viewport-fit=cover" name="viewport"/>
@@ -1130,7 +1130,7 @@ html.npReport-scope {
 <div class="headerTopRow">
 <div class="headerLeft">
 <div class="headerBrand">
-<img alt="NeuPrint Logo" class="brandLogo" src="./neuprint_logo.svg"/>
+<img alt="NeuPrint Logo" class="brandLogo" src="./images/neuprint_logo.svg"/>
 </div>
 <div class="brandline">
 <span> NeuPrint Cognitive Forensics Engine v1.1 </span>
@@ -1580,51 +1580,51 @@ html.npReport-scope {
 <div class="alignmentInner">
 <div aria-label="Aligned institutions and frameworks" class="alignmentLogos">
 <div class="alLogo">
-<img alt="OECD" class="alImg" src="OECD_logo.png"/>
+<img alt="OECD" class="alImg" src="./images/OECD_logo.png"/>
 <span class="alFallback"> OECD </span>
 </div>
 <div class="alLogo">
-<img alt="PISA" class="alImg" src="PISA_logo.png"/>
+<img alt="PISA" class="alImg" src="./images/PISA_logo.png"/>
 <span class="alFallback"> PISA </span>
 </div>
 <div class="alLogo">
-<img alt="ETS" class="alImg" src="ETS_logo.png"/>
+<img alt="ETS" class="alImg" src="./images/ETS_logo.png"/>
 <span class="alFallback"> ETS </span>
 </div>
 <div class="alLogo">
-<img alt="APA" class="alImg" src="APA_logo.png"/>
+<img alt="APA" class="alImg" src="./images/APA_logo.png"/>
 <span class="alFallback"> APA </span>
 </div>
 <div class="alLogo">
-<img alt="O*NET" class="alImg" src="Onet_logo.png"/>
+<img alt="O*NET" class="alImg" src="./images/Onet_logo.png"/>
 <span class="alFallback"> O*NET </span>
 </div>
 <div class="alLogo">
-<img alt="AERA" class="alImg" src="AERA_logo.png"/>
+<img alt="AERA" class="alImg" src="./images/AERA_logo.png"/>
 <span class="alFallback"> AERA </span>
 </div>
 <div class="alLogo">
-<img alt="NCME" class="alImg" src="NCME_logo.png"/>
+<img alt="NCME" class="alImg" src="./images/NCME_logo.png"/>
 <span class="alFallback"> NCME </span>
 </div>
 <div class="alLogo">
-<img alt="AAC&amp;U" class="alImg" src="AACU_logo.png"/>
+<img alt="AAC&amp;U" class="alImg" src="./images/AACU_logo.png"/>
 <span class="alFallback"> AAC&amp;U </span>
 </div>
 <div class="alLogo">
-<img alt="Cambridge" class="alImg" src="Cambridge_logo.png"/>
+<img alt="Cambridge" class="alImg" src="./images/Cambridge_logo.png"/>
 <span class="alFallback"> Cambridge </span>
 </div>
 <div class="alLogo">
-<img alt="IB" class="alImg" src="IB_logo.png"/>
+<img alt="IB" class="alImg" src="./images/IB_logo.png"/>
 <span class="alFallback"> IB </span>
 </div>
 <div class="alLogo">
-<img alt="LSAT" class="alImg" src="LSAT_logo.png"/>
+<img alt="LSAT" class="alImg" src="./images/LSAT_logo.png"/>
 <span class="alFallback"> LSAT </span>
 </div>
 <div class="alLogo">
-<img alt="GMAT" class="alImg" src="GMAT_logo.png"/>
+<img alt="GMAT" class="alImg" src="./images/GMAT_logo.png"/>
 <span class="alFallback"> GMAT </span>
 </div>
 </div>
@@ -2329,6 +2329,15 @@ return base
 }
 function formatPct01(x) {
   return pct01ToPctInt(x) + '%'
+}
+function getDominantMixLabelAndPct(mix) {
+  const labels = ['Human', 'Hybrid', 'AI']
+  const values = pctTripletFromMix(mix)
+  let maxIdx = 0
+  for (let i = 1; i < values.length; i++) {
+    if (values[i] > values[maxIdx]) maxIdx = i
+  }
+  return { label: labels[maxIdx], pct: values[maxIdx] }
 }
 function fmt2(x) {
   const n = Number(x)
@@ -4356,7 +4365,7 @@ mountChartDeferred(
 (animate) => ({
   type: 'doughnut',
   data: {
-    labels: [],
+    labels: ['Human', 'Hybrid', 'AI'],
     datasets: [
     {
       data: [0, 0, 0],
@@ -4370,23 +4379,22 @@ options: {
   plugins: {
     ...doughnutOptions(animate).plugins,
 
-    centerText: { top: decision, bottom: (pctTripletFromMix(mix)[0] + '%') },
+    centerText: (() => {
+      const dominant = getDominantMixLabelAndPct(getMixFromReport(r) || {})
+      return { top: dominant.label, bottom: (dominant.pct + '%') }
+    })(),
   },
 },
 }),
 () =>
 animateChartData('chartMixAgency', (c) => {
   const mix = getMixFromReport(r) || {}
-  const decision = String(r?.hero?.chips?.control ?? r?.agency?.control_label ?? '')
-  const labels =
-    (Array.isArray(r?.agency?.mix_labels) && r.agency.mix_labels.length)
-      ? r.agency.mix_labels.map((s) => String(s))
-      : Object.keys(mix).map((k) => String(k).charAt(0).toUpperCase() + String(k).slice(1))
+  const dominant = getDominantMixLabelAndPct(mix)
 
-  c.data.labels = labels
+  c.data.labels = ['Human', 'Hybrid', 'AI']
   c.data.datasets[0].data = pctTripletFromMix(mix)
 
-  c.options.plugins.centerText = { top: decision, bottom: (pctTripletFromMix(mix)[0] + '%') }
+  c.options.plugins.centerText = { top: dominant.label, bottom: (dominant.pct + '%') }
 }),
 )
 
