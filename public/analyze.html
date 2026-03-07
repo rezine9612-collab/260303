@@ -339,6 +339,8 @@ html.npHome-scope .npOverlayIconWrap{
       margin: 0;
       background: transparent;
       overflow: auto;
+      white-space: pre-wrap;
+      overflow-wrap: break-word;
     }
 
     html.npHome-scope .intakeText::placeholder{
@@ -597,6 +599,7 @@ html.npHome-scope .npOverlayIconWrap{
                 class="intakeText"
                 placeholder="Paste text to establish a cognitive reference."
                 aria-label="Text intake"
+              wrap="soft"
               ></textarea>
 
               <div class="intakeTools" aria-label="Input tools (placeholders)">
@@ -753,6 +756,31 @@ html.npHome-scope .npOverlayIconWrap{
 
     textarea.addEventListener("input", onUserEdit);
 
+
+    function getRawTextareaValue(){
+      return textarea.value.replace(/\r\n?/g, "\n");
+    }
+
+    textarea.addEventListener("paste", (e)=>{
+      const cd = e.clipboardData || window.clipboardData;
+      if(!cd) return;
+      const pasted = (cd.getData("text/plain") || "").replace(/\r\n?/g, "\n");
+      if(!pasted) return;
+      e.preventDefault();
+
+      const start = textarea.selectionStart ?? textarea.value.length;
+      const end = textarea.selectionEnd ?? textarea.value.length;
+      const current = textarea.value || "";
+      textarea.value = current.slice(0, start) + pasted + current.slice(end);
+
+      const caret = start + pasted.length;
+      textarea.setSelectionRange(caret, caret);
+
+      if(sampleSelected) clearSampleActive();
+      syncStates();
+    });
+
+
     /* =========================================================
        샘플 클릭 시 "회색 -> 진한 링" 플리커 제거
        - 버튼이 포커스를 먹어 :focus-within이 잠깐 끊기는 순간이 원인
@@ -811,8 +839,8 @@ html.npHome-scope .npOverlayIconWrap{
 
     /* Empty input alert */
     cta.addEventListener("click", async ()=>{
-      const v = textarea.value.trim();
-      if(!v){
+      const rawText = getRawTextareaValue();
+      if(!rawText.trim()){
         alert("Please enter text.");
         textarea.focus();
         return;
@@ -826,7 +854,7 @@ html.npHome-scope .npOverlayIconWrap{
         const res = await fetch("/api/analyze", {
           method: "POST",
           headers: {"Content-Type":"application/json"},
-          body: JSON.stringify({ text: v })
+          body: JSON.stringify({ text: rawText })
         });
         const data = await res.json();
         if(!res.ok || !data || data.ok === false){
