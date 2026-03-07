@@ -1288,9 +1288,11 @@ export type RawFeaturesV1 = {
   evidence: number;// E
 
   // 1) AAS
-  sub_claims?: number;
-  warrants: number;
-  structure_type?: StructureType;
+  sub_claims?: number | null;
+  warrants: number | null;
+  counterpoints?: number | null;
+  refutations?: number | null;
+  structure_type?: StructureType | null;
 
   // 2) CTF
   transitions: number;
@@ -1350,6 +1352,39 @@ function structureWeight(st?: StructureType): number {
   }
 }
 
+export function inferStructureType(raw: {
+  claims?: number | null;
+  sub_claims?: number | null;
+  counterpoints?: number | null;
+  refutations?: number | null;
+  structure_type?: StructureType | null;
+}): StructureType {
+  if (
+    raw?.structure_type === "linear" ||
+    raw?.structure_type === "hierarchical" ||
+    raw?.structure_type === "networked"
+  ) {
+    return raw.structure_type;
+  }
+
+  const claims = typeof raw?.claims === "number" && Number.isFinite(raw.claims) ? Math.max(0, raw.claims) : 0;
+  const subClaims = typeof raw?.sub_claims === "number" && Number.isFinite(raw.sub_claims) ? Math.max(0, raw.sub_claims) : 0;
+  const counterpoints = typeof raw?.counterpoints === "number" && Number.isFinite(raw.counterpoints) ? Math.max(0, raw.counterpoints) : 0;
+  const refutations = typeof raw?.refutations === "number" && Number.isFinite(raw.refutations) ? Math.max(0, raw.refutations) : 0;
+
+  const opposition = counterpoints + refutations;
+  const subClaimRatio = claims > 0 ? subClaims / claims : 0;
+
+  if (opposition >= 2) return "networked";
+  if (counterpoints >= 1 && refutations >= 1) return "networked";
+  if (subClaims >= 2 && opposition >= 1) return "networked";
+
+  if (subClaims >= 2) return "hierarchical";
+  if (subClaimRatio >= 0.5 && subClaims >= 1) return "hierarchical";
+
+  return "linear";
+}
+
 function naToMid01(x: number | null | undefined): number {
   // legacy helper retained for backward compatibility
   // MVP A안에서는 KPF/TPS를 계산에서 제외하므로 사용하지 않는다
@@ -1369,7 +1404,13 @@ export function computeCFF6_v1(raw: RawFeaturesV1): CFF6 {
 
   const sub = Math.max(0, raw.sub_claims || 0);
   const W = Math.max(0, raw.warrants || 0);
-  const st = raw.structure_type ?? "linear";
+  const st = inferStructureType({
+    claims: raw.claims,
+    sub_claims: raw.sub_claims,
+    counterpoints: raw.counterpoints,
+    refutations: raw.refutations,
+    structure_type: raw.structure_type ?? null,
+  });
 
   const T = Math.max(0, raw.transitions || 0);
   const Tok = Math.max(0, raw.transition_ok || 0);
@@ -1457,47 +1498,33 @@ export function computeCFF8_v1(raw: RawFeaturesV1): CFF8 {
  * No fallback coercion, no neutral fill, no default structure substitution.
  */
 export function computeCFF6_strict(raw: RawFeaturesV1): CFF6 {
-  const requiredNums = {
-    units: raw?.units,
+  // MVP A안: GPT extraction에 null이 많아도 백엔드에서 안전하게 정규화한다.
+  // strict path는 "수식 고정"을 의미하며, null-heavy raw는 0/default로 보정해 계산 실패를 피한다.
+  const U = Math.max(1, Math.floor(safeNum(raw?.units, 1)));
+  const C = Math.max(0, safeNum(raw?.claims, 0));
+  const R = Math.max(0, safeNum(raw?.reasons, 0));
+  const E = Math.max(0, safeNum(raw?.evidence, 0));
+  const sub = Math.max(0, safeNum(raw?.sub_claims, 0));
+  const W = Math.max(0, safeNum(raw?.warrants, 0));
+  const T = Math.max(0, safeNum(raw?.transitions, 0));
+  const Tok = Math.max(0, safeNum(raw?.transition_ok, 0));
+  const loops = Math.max(0, safeNum(raw?.loops, 0));
+  const intentMarkers = Math.max(0, safeNum(raw?.intent_markers, 0));
+
+  const st = inferStructureType({
     claims: raw?.claims,
-    reasons: raw?.reasons,
-    evidence: raw?.evidence,
     sub_claims: raw?.sub_claims,
-    warrants: raw?.warrants,
-    transitions: raw?.transitions,
-    transition_ok: raw?.transition_ok,
-    loops: raw?.loops,
-    intent_markers: raw?.intent_markers,
-  } as const;
+    counterpoints: raw?.counterpoints,
+    refutations: raw?.refutations,
+    structure_type: raw?.structure_type ?? null,
+  });
 
-  for (const [k, v] of Object.entries(requiredNums)) {
-    if (typeof v !== 'number' || !Number.isFinite(v)) {
-      throw new Error(`CFF requires finite ${k}`);
-    }
-  }
-
-  const st: StructureType =
-    raw?.structure_type === 'hierarchical' || raw?.structure_type === 'networked'
-      ? raw.structure_type
-      : 'linear';
-
-  const U = Math.max(1, Math.floor(raw.units));
-  const C = Math.max(0, raw.claims);
-  const R = Math.max(0, raw.reasons ?? 0);
-  const E = Math.max(0, raw.evidence ?? 0);
-  const sub = Math.max(0, raw.sub_claims ?? 0);
-  const W = Math.max(0, raw.warrants ?? 0);
-  const T = Math.max(0, raw.transitions ?? 0);
-  const Tok = Math.max(0, raw.transition_ok ?? 0);
-  const loops = Math.max(0, raw.loops);
-  const intentMarkers = Math.max(0, raw.intent_markers);
-
-  const hedges = (typeof raw?.hedges === 'number' && Number.isFinite(raw.hedges)) ? Math.max(0, raw.hedges) : 0;
-  const rev = (typeof raw?.revisions === 'number' && Number.isFinite(raw.revisions)) ? Math.max(0, raw.revisions) : 0;
-  const revDepthSum = (typeof raw?.revision_depth_sum === 'number' && Number.isFinite(raw.revision_depth_sum)) ? Math.max(0, raw.revision_depth_sum) : 0;
+  const hedges = Math.max(0, safeNum(raw?.hedges, 0));
+  const rev = Math.max(0, safeNum(raw?.revisions, 0));
+  const revDepthSum = Math.max(0, safeNum(raw?.revision_depth_sum, 0));
   const beliefChange = !!raw?.belief_change;
-  const driftSeg = (typeof raw?.drift_segments === 'number' && Number.isFinite(raw.drift_segments)) ? Math.max(0, raw.drift_segments) : 0;
-  const evTypes = Array.isArray(raw?.evidence_types) ? new Set(raw.evidence_types) : new Set<string>();
+  const driftSeg = Math.max(0, safeNum(raw?.drift_segments, 0));
+  const evTypes = Array.isArray(raw?.evidence_types) ? new Set(raw.evidence_types.filter((v) => typeof v === "string" && v.trim())) : new Set<string>();
 
   const hierarchy_ratio = safeDiv(sub, C);
   const warrant_ratio = safeDiv(W, C);
