@@ -268,7 +268,7 @@ html.npHome-scope .npOverlayIconWrap{
       font-size: 42px;
       line-height: 1.16;
       letter-spacing: -0.6px;
-      font-weight: 500;
+      font-weight: 600;
       max-width: 860px;
 
       /* (2) 단어 중간 줄바꿈 방지 */
@@ -302,17 +302,20 @@ html.npHome-scope .npOverlayIconWrap{
 
     html.npHome-scope .intakeBox{
       width: 770px;
+      min-height: 150px;
       height: 150px;
+      max-height: 320px;
       border: 1px solid var(--inputBorder);
       border-radius: var(--radiusLG);
       background:#fff;
       display:flex;
       flex-direction:column;
+      justify-content:flex-start;
       padding: 14px 16px 12px;
 
       /* 바깥 링을 위한 여유 */
       box-shadow: 0 0 0 0 rgba(0,0,0,0);
-      transition: box-shadow .14s ease, border-color .14s ease;
+      transition: box-shadow .14s ease, border-color .14s ease, height .22s cubic-bezier(.2,.8,.2,1);
     }
 
     html.npHome-scope /* 포커스시 "바깥" 링 */
@@ -329,7 +332,10 @@ html.npHome-scope .npOverlayIconWrap{
 
     html.npHome-scope .intakeText{
       width:100%;
-      flex: 1;
+      flex: 0 0 auto;
+      height: 96px;
+      min-height: 96px;
+      max-height: 254px;
       border:0;
       outline:0;
       resize:none;
@@ -338,9 +344,13 @@ html.npHome-scope .npOverlayIconWrap{
       padding: 0;
       margin: 0;
       background: transparent;
-      overflow: auto;
+      overflow-y: hidden;
+      overflow-x: hidden;
       white-space: pre-wrap;
       overflow-wrap: break-word;
+      word-break: break-word;
+      scrollbar-width: thin;
+      transition: height .22s cubic-bezier(.2,.8,.2,1);
     }
 
     html.npHome-scope .intakeText::placeholder{
@@ -357,8 +367,10 @@ html.npHome-scope .npOverlayIconWrap{
       display:flex;
       align-items:center;
       gap: 10px;
-      margin-top: 10px;
+      margin-top: auto;
+      padding-top: 10px;
       justify-content:flex-start;
+      flex: 0 0 auto;
     }
 
     html.npHome-scope .iconBtn{
@@ -481,7 +493,7 @@ html.npHome-scope .npOverlayIconWrap{
       background:#fff;
       color:#0b1220;
 
-      font-weight: 500;
+      font-weight:600;
       font-size:15px;
       letter-spacing:.1px;
 
@@ -522,14 +534,18 @@ html.npHome-scope .npOverlayIconWrap{
       text-align: center;
     }
 
+    
     @media (max-width: 860px){
       html.npHome-scope .brandLogo{ width: var(--logoW-m); }
       html.npHome-scope h1{ font-size: 32px; }
-      html.npHome-scope .intakeBox{ width: 100%; }
+      html.npHome-scope .intakeBox{ width: 100%; min-height: 144px; height: 144px; max-height: 280px; }
+      html.npHome-scope .intakeText{ min-height: 92px; height: 92px; max-height: 214px; }
+      html.npHome-scope .intakeTools{ padding-top: 10px; }
       html.npHome-scope .sampleRow{ width: 100%; }
       html.npHome-scope .intakeWrap{ width: 100%; }
       html.npHome-scope .subtitle{ font-size: 16px; }
     }
+
 
     html.npHome-scope /* =========================================================
        (1) Entrance motion (layout fixed: opacity/transform only)
@@ -600,6 +616,7 @@ html.npHome-scope .npOverlayIconWrap{
                 placeholder="Paste text to establish a cognitive reference."
                 aria-label="Text intake"
               wrap="soft"
+              rows="1"
               ></textarea>
 
               <div class="intakeTools" aria-label="Input tools (placeholders)">
@@ -619,11 +636,11 @@ html.npHome-scope .npOverlayIconWrap{
 
             <!-- (1) 샘플버튼: 위->아래 -->
             <div class="sampleRow npHome-enterY" id="sampleRow" aria-label="Sample quick inserts">
-              <button class="sampleBtn" type="button" data-sample="sample1 입니다.">Sample 1</button>
-              <button class="sampleBtn" type="button" data-sample="sample2 입니다.">Sample 2</button>
-              <button class="sampleBtn" type="button" data-sample="sample3 입니다.">Sample 3</button>
-              <button class="sampleBtn" type="button" data-sample="sample4 입니다.">Sample 4</button>
-              <button class="sampleBtn" type="button" data-sample="sample5 입니다.">Sample 5</button>
+              <button class="sampleBtn" type="button" data-sample="sample1">Sample 1</button>
+              <button class="sampleBtn" type="button" data-sample="sample2">Sample 2</button>
+              <button class="sampleBtn" type="button" data-sample="sample3">Sample 3</button>
+              <button class="sampleBtn" type="button" data-sample="sample4">Sample 4</button>
+              <button class="sampleBtn" type="button" data-sample="sample5">Sample 5</button>
             </div>
 
             <!-- (1) CTA: 위->아래 -->
@@ -678,12 +695,84 @@ html.npHome-scope .npOverlayIconWrap{
     const intakeBox = document.getElementById("intakeBox");
     const cta = document.getElementById("ctaBtn");
     const sampleBtns = Array.from(document.querySelectorAll(".sampleBtn"));
+    const SAMPLE_TEXTS = {
+  "sample1": "When I was eleven, my grandfather gave me a small folding knife with a worn blue handle. It was not a beautiful object. The blade was scratched, the hinge was stiff, and one side of the plastic grip had faded to a color somewhere between gray and pale navy. But he handed it to me the way a person hands over something that has already gathered meaning. He did not give gifts casually, so even before he explained anything, I felt that I was receiving more than a tool.\n\nWe were standing beside the storage shed behind his house. It was late autumn, and the air had that dry, cool quality that made even simple sounds seem clearer. I could hear the metal latch of the shed door, the rustle of dead leaves, and a dog barking somewhere several houses away. My grandfather opened the knife, tested the hinge with his thumb, and told me to hold it carefully. Then he said something I did not understand until many years later.\n\n“A tool shows you how you think.”\n\nAt that age, I thought thinking mostly happened in school. Thinking meant answering questions quickly, remembering what the teacher had said, and writing the right thing on a test. I did not see what a knife had to do with any of that. To me, it was simply sharp, slightly dangerous, and exciting in the way forbidden objects often are.\n\nHe picked up a fallen branch from the yard and told me to shave the bark away and turn one end into a smooth point. I attacked the branch the way children often attack tasks, with confidence before skill. I cut too deeply. The blade slipped sideways. I tore off uneven strips and left ugly notches where the wood split along the grain. In my mind, I was making progress because I was removing a lot of material quickly.\n\nMy grandfather watched for a while without interrupting me. That was his style. He rarely corrected too early. When he finally took the branch from my hand, he rotated it slowly and ran his thumb across the rough surface. Then he said, almost casually, “Speed makes mistakes louder.”\n\nHe gave the branch back and told me to try again, only this time to watch where the grain wanted to go. That phrase, “where the grain wanted to go,” also puzzled me. I had assumed the wood would obey me. Instead, as I slowed down, I began to notice that some cuts moved cleanly while others fought back. The knife did not simply respond to force. It responded to angle, pressure, direction, and patience. Each pass of the blade became smaller. I stopped trying to finish quickly and started paying attention to what was happening under my hand.\n\nThe result was still imperfect, but it was clearly better. The point was smoother. The cuts were more even. More importantly, I had felt the difference between forcing an object and working with its structure.\n\nThat lesson returned to me years later in situations that had nothing to do with wood or knives. I saw it when I rushed through essays and had to rewrite whole paragraphs because the thinking underneath them was weak. I saw it when I tried to solve difficult problems by pushing harder instead of stepping back. I even saw it in conversations, where impatience often made misunderstanding worse rather than shorter.\n\nMy grandfather never turned that afternoon into a formal teaching moment. He did not deliver a speech about discipline or craftsmanship. He simply let the branch, the blade, and my own clumsy effort do most of the explaining. Looking back, I think that was why the lesson lasted. He did not tell me to be careful in the abstract. He let me experience what care actually changes.\n\nI no longer have that knife. It disappeared somewhere between apartments, jobs, and ordinary adult life. But I still remember the sensation of slowing down enough to see the grain. And I still think he was right. A tool does show you how you think, especially when it refuses to cooperate with haste.",
+  "sample2": "Artificial intelligence is increasingly used to support decisions in hiring, lending, insurance, education, and public administration. In each of these domains, advocates emphasize the same advantages: faster processing, lower administrative cost, and greater consistency across cases. Those benefits are real. A well-designed model can analyze large volumes of data more quickly than a human reviewer, and it can apply the same formal criteria repeatedly without fatigue. Yet the presence of those advantages does not resolve the central question. The real policy issue is whether AI should be allowed to make final decisions that materially affect a person’s opportunities, rights, or access to resources.\n\nThe strongest argument against full delegation is not that AI systems are useless. It is that high-stakes decisions are never purely statistical. They always contain a contextual and normative dimension. A hiring decision, for example, may involve incomplete evidence, nonstandard career paths, and relevant qualities that are difficult to capture in structured data. A loan decision may depend on economic patterns that shift faster than historical training data can reflect. A public benefits determination may include exceptional circumstances that matter morally and legally even when they are rare in the dataset. In each case, decision quality depends not only on prediction but on judgment.\n\nA second problem concerns bias. Machine learning systems are trained on data generated by prior institutions, and prior institutions often contain unequal treatment, measurement distortion, and procedural inconsistency. If an employer has historically favored certain schools, regions, or communication styles, those patterns may be embedded in the historical record. A model trained on that record may appear objective because it operates mathematically, while in fact it is reproducing earlier structural preferences. The danger here is subtle. Automation can turn contested human bias into apparently neutral technical output.\n\nSupporters of automated decision making sometimes answer this concern by arguing that human decision makers are biased as well, and that algorithmic tools at least provide uniformity. That reply is partly correct. Humans are inconsistent, emotional, and vulnerable to irrelevant impressions. But consistency is not the same as fairness. A flawed rule applied uniformly is still flawed. The relevant question is not whether AI is more consistent than humans in the abstract, but whether the system’s criteria are valid, reviewable, and appropriate for the decision domain.\n\nA third issue is accountability. When an AI-driven decision harms someone, responsibility becomes diffuse. Developers may point to the client organization that selected the deployment context. The organization may point to the vendor, the training data, or the complexity of the model. Compliance teams may argue that thresholds were technically approved. As responsibility spreads outward, practical accountability often weakens. In traditional decision structures, there is at least a recognizable decision maker who can explain, defend, or revise the judgment. In automated systems, that chain of explanation can become fragmented across technical and institutional layers.\n\nTransparency matters for similar reasons. In high-stakes settings, affected individuals should be able to understand the basis of a decision well enough to challenge it. This does not require exposing every line of source code. It does require interpretable criteria, meaningful notice, and a genuine review pathway. Without those elements, appeals become hollow because the person contesting the outcome does not know what must be rebutted.\n\nFor these reasons, AI should be treated as a decision support system, not a decision sovereign. It can sort cases, surface anomalies, summarize records, and identify patterns that deserve attention. It can help humans work better. But final authority in consequential domains should remain with accountable human actors who can consider context, justify exceptions, and bear responsibility for outcomes.\n\nThe key point is simple. A society should not confuse computational power with legitimate authority. The fact that a system can produce a decision does not mean that institutions ought to hand over the right to decide.",
+  "sample3": "Economic productivity is often described as though it were a single lever that governments can pull upward with enough investment or enough determination. In practice, productivity growth emerges from several interacting mechanisms, and the failure to distinguish those mechanisms leads to poor policy design. When productivity stalls, the problem may appear to be technological, but the real constraint may lie in workforce capability, management quality, infrastructure, or institutional incentives. A useful analysis therefore begins by separating the major channels through which output per worker or output per hour actually rises.\n\nThe first channel is capital deepening. This refers to the increase in the quantity or quality of tools, equipment, and infrastructure available to workers. A factory equipped with updated machinery can often produce more output with the same labor input. A logistics firm with better routing software and warehouse automation can move more goods with fewer delays. Capital deepening matters because workers do not produce in isolation. Their effectiveness depends partly on the productive environment around them. However, capital expenditure alone rarely guarantees sustained gains. If firms purchase expensive equipment without redesigning workflows or training staff, the investment may remain underutilized.\n\nThe second channel is human capital. Human capital includes formal education, technical training, tacit know-how, and the ability to adapt when production systems change. This matters because productivity is not simply a function of machines doing more work. It is also a function of people knowing how to diagnose problems, interpret feedback, coordinate tasks, and improve processes over time. Two firms may acquire similar equipment and yet generate very different returns because their workers differ in skills, learning capacity, or organizational support. In that sense, human capital is not a soft supplement to productivity. It is one of its main carriers.\n\nA third channel is technological innovation. Innovation differs from capital deepening because it changes the production frontier rather than merely expanding access to existing tools. New materials, improved process designs, software systems, and scientific breakthroughs can restructure industries entirely. The impact of innovation is often uneven at first. Early adopters may capture large gains while other firms lag. Over time, diffusion determines whether the innovation lifts sector-wide productivity or remains concentrated in a few leading companies. This is why innovation policy cannot stop at invention. Diffusion, standards, supplier readiness, and interoperability also matter.\n\nA fourth factor, often neglected in public discussion, is organizational efficiency. Firms can possess decent equipment, educated workers, and promising technologies while still performing poorly if decision structures are slow, incentives are misaligned, or information does not move effectively across teams. Management quality influences scheduling, maintenance, delegation, quality control, and experimentation. These may sound mundane compared with advanced technology, but they often determine whether potential gains become real gains. In many sectors, the gap between top-performing firms and average firms is explained as much by organizational capability as by frontier technology.\n\nA fifth element is institutional context. Energy reliability, transport systems, contract enforcement, regulatory predictability, and financing conditions all shape productivity indirectly. Even an efficient firm struggles if it operates in an environment where inputs are unstable, upgrades are difficult to finance, or compliance uncertainty discourages investment. Productive performance is therefore not solely an internal firm outcome. It is partly an ecosystem outcome.\n\nThese channels interact. Capital investment may require new skills. New skills may raise the payoff to innovation. Innovation may force firms to reorganize management systems. Institutional reforms may encourage investment that was previously delayed. Because of these interdependencies, productivity growth is rarely achieved through a single policy instrument.\n\nThe broader lesson is that productivity should be understood as a system property. It emerges when technology, people, organization, and institutions are aligned well enough for improvements in one area to reinforce improvements in another. Policies that recognize this interaction are more likely to produce durable gains than policies built on a single-factor explanation.",
+  "sample4": "Climate change is not a discrete environmental issue that can be isolated from the rest of social and economic policy. It is a systemic condition that affects infrastructure planning, industrial strategy, food security, migration pressures, insurance markets, public health, and geopolitical stability. Because its causes and effects operate across long time horizons and across national borders, an effective response cannot rely on a single policy instrument. It requires an integrated framework built around mitigation, adaptation, innovation, and governance coordination.\n\nMitigation is the first pillar because unchecked emissions increase the scale of future harm. Mitigation policies seek to reduce greenhouse gas output by changing how energy is produced, transported, and consumed. The principal instruments include renewable energy deployment, improvements in efficiency, electrification of transport and heating, methane reduction, industrial process changes, and pricing or regulatory mechanisms that alter incentives. The purpose of mitigation is not simply symbolic environmental leadership. It is the reduction of long-run physical risk and economic disruption.\n\nAdaptation is the second pillar because some climate impacts are already locked in by past emissions and present atmospheric conditions. Heat waves, flooding, coastal erosion, wildfire intensity, and water stress are no longer hypothetical scenarios in many regions. Adaptation policies therefore focus on resilience. These may include reinforcing grids, redesigning drainage systems, updating building standards, shifting crop patterns, protecting critical facilities, and developing more responsive early-warning systems. Adaptation does not solve the root cause of warming, but it reduces the damage associated with ongoing and near-term effects.\n\nInnovation constitutes a third pillar because existing technologies, while important, are not sufficient on their own to deliver a complete transition at the required scale and speed. Advances in energy storage, grid management, carbon capture, low-emission industrial heat, sustainable fuels, advanced materials, and climate modeling all expand the feasible policy set. Innovation also matters institutionally. New financing structures, procurement models, and data-sharing arrangements can accelerate deployment even when the underlying science is already available.\n\nGovernance coordination forms the fourth pillar because fragmented action produces leakage, delay, and policy contradiction. Climate systems are globally connected, while political authority remains largely national and subnational. This mismatch creates persistent coordination problems. One country may tighten emissions rules while another expands high-carbon production. One region may invest in adaptation while another neglects shared infrastructure. Effective governance therefore requires coordination across ministries, across levels of government, and across borders. Targets matter, but so do implementation pathways, measurement standards, and credible review mechanisms.\n\nThese four pillars are mutually reinforcing. Strong mitigation reduces the severity of future adaptation burdens. Better adaptation protects vulnerable populations while giving institutions more capacity to pursue transition policies. Innovation lowers costs and widens the menu of realistic options. Governance coordination aligns incentives and reduces duplication or free-riding. Weakness in one pillar can undermine progress in the others.\n\nA coherent climate strategy must therefore be both technologically informed and institutionally disciplined. It should connect long-term decarbonization with near-term resilience, and it should recognize that policy effectiveness depends not only on ambition but on sequencing, credibility, and implementation capacity. The challenge of climate change is large partly because it requires societies to act across multiple domains at once. For that reason, the quality of coordination may matter almost as much as the quality of any individual solution.",
+  "sample5": "For a long time, I assumed that intelligence was easiest to recognize in fast responses. In school, the students who impressed teachers most immediately were usually the ones who answered first, spoke with confidence, and seemed able to reach conclusions without visible hesitation. Their speed looked like clarity. Their certainty looked like depth. Because that pattern was rewarded so often, I quietly absorbed the idea that real intelligence revealed itself through quickness.\n\nAt first, that belief seemed reasonable. In timed settings, speed often does correlate with familiarity and competence. A person who understands a method can sometimes move through routine problems with very little friction. But over time, especially in more complex situations, I began to notice a mismatch between fast performance and durable understanding.\n\nThe change in my thinking did not happen all at once. It happened through repeated encounters with people who did not fit the model I had internalized. Some of the most thoughtful students I met were not the fastest speakers in the room. In fact, they often paused before responding. They asked clarifying questions. They sometimes said that the problem itself might need to be reframed. Early on, I mistook that behavior for uncertainty. Later, I realized it was often a sign of structural attention.\n\nWhat distinguished these people was not hesitation for its own sake. It was their refusal to treat the first visible version of a problem as the final one. When others rushed toward an answer, they often examined assumptions, categories, and hidden constraints. They seemed to understand that many difficult problems are hard not because solutions are absent, but because the problem statement is carrying an unnoticed distortion.\n\nThis became especially clear to me during collaborative work. Quick thinkers were often extremely useful at initiating momentum, summarizing obvious options, and pushing a group past trivial confusion. But when a project stalled for reasons no one could explain, a different kind of intelligence became more valuable. At that point, the breakthrough often came from someone who could reorganize the frame: someone who noticed that two variables had been treated as independent when they were not, or that the team had optimized for convenience rather than the actual objective.\n\nThat experience gradually changed how I understood learning. I had once thought learning was mainly the accumulation of correct answers. Later I began to think it was equally about building better internal ways of seeing questions. Memorization still mattered. Technical skill still mattered. But neither seemed sufficient when the task required reinterpretation rather than recall.\n\nThere is also a personal dimension to this shift. If intelligence is equated only with speed, then hesitation feels like failure. A person may become anxious the moment they do not know what to say. But if intelligence includes the ability to slow down, inspect assumptions, and revise an approach, then uncertainty becomes less threatening. It becomes part of the process rather than evidence of inadequacy.\n\nI do not mean that slowness is automatically deep or that quickness is superficial. That would only reverse the same mistake. Some people are both fast and profound. Others are slow because they are lost rather than reflective. The important point is that speed alone is an incomplete signal. It tells us something, but not enough.\n\nWhat I believe now is simpler and, I think, more accurate. Intelligence often shows itself not in how quickly someone closes a question, but in how flexibly they can reopen it. The person who can change perspective, test a hidden assumption, and reconstruct the shape of a problem may understand more than the person who merely reaches an answer first. In that sense, learning is not just the expansion of knowledge. It is the refinement of inquiry."
+};
     const statusOverlay = document.getElementById("npStatusOverlay");
     const statusTitle = document.getElementById("npStatusTitle");
 
     let sampleSelected = false;
     let isSubmitting = false;
     let stageTimerIds = [];
+
+
+    function autoGrowTextarea(animate = true){
+      const isMobile = window.innerWidth <= 860;
+      const minText = isMobile ? 92 : 96;
+      const maxText = isMobile ? 214 : 254;
+      const minBox = isMobile ? 144 : 150;
+      const maxBox = isMobile ? 280 : 320;
+
+      const computed = window.getComputedStyle(textarea);
+      const lineHeight = parseFloat(computed.lineHeight) || 22;
+      const paddingTop = parseFloat(computed.paddingTop) || 0;
+      const paddingBottom = parseFloat(computed.paddingBottom) || 0;
+
+      const previousTextHeight = parseFloat(textarea.style.height || "0") || minText;
+      const previousBoxHeight = parseFloat(intakeBox.style.height || "0") || minBox;
+
+      // Measure natural scroll height without flashing
+      const prevOverflow = textarea.style.overflowY;
+      textarea.style.overflowY = "hidden";
+      textarea.style.height = "auto";
+      const natural = textarea.scrollHeight;
+
+      // Keep initial size stable until content truly wraps/newlines increase rows
+      const estimatedLines = Math.max(1, Math.round((natural - paddingTop - paddingBottom) / lineHeight));
+      const targetText = estimatedLines <= 4
+        ? minText
+        : Math.max(minText, Math.min(natural, maxText));
+
+      const tools = intakeBox.querySelector(".intakeTools");
+      const toolsH = tools ? tools.offsetHeight : 38;
+      const boxStyle = window.getComputedStyle(intakeBox);
+      const boxPadTop = parseFloat(boxStyle.paddingTop) || 14;
+      const boxPadBottom = parseFloat(boxStyle.paddingBottom) || 12;
+      const targetBox = Math.max(minBox, Math.min(targetText + toolsH + boxPadTop + boxPadBottom + 10, maxBox));
+
+      if(!animate){
+        const prevTextTransition = textarea.style.transition;
+        const prevBoxTransition = intakeBox.style.transition;
+        textarea.style.transition = "none";
+        intakeBox.style.transition = "none";
+        textarea.style.height = targetText + "px";
+        intakeBox.style.height = targetBox + "px";
+        void textarea.offsetHeight;
+        textarea.style.transition = prevTextTransition;
+        intakeBox.style.transition = prevBoxTransition;
+      } else {
+        // animate only when height actually changes
+        if (Math.abs(previousTextHeight - targetText) > 0.5) {
+          textarea.style.height = targetText + "px";
+        } else {
+          textarea.style.height = previousTextHeight + "px";
+        }
+
+        if (Math.abs(previousBoxHeight - targetBox) > 0.5) {
+          intakeBox.style.height = targetBox + "px";
+        } else {
+          intakeBox.style.height = previousBoxHeight + "px";
+        }
+      }
+
+      const shouldScroll = natural > maxText;
+      textarea.style.overflowY = shouldScroll ? "auto" : "hidden";
+    }
+
 
     function clearStageTimers(){
       stageTimerIds.forEach(id => clearTimeout(id));
@@ -752,6 +841,11 @@ html.npHome-scope .npOverlayIconWrap{
     function onUserEdit(){
       if(sampleSelected) clearSampleActive();
       syncStates();
+    autoGrowTextarea(false);
+
+    window.addEventListener("resize", ()=>autoGrowTextarea(false));
+      autoGrowTextarea();
+      autoGrowTextarea();
     }
 
     textarea.addEventListener("input", onUserEdit);
@@ -778,6 +872,7 @@ html.npHome-scope .npOverlayIconWrap{
 
       if(sampleSelected) clearSampleActive();
       syncStates();
+      requestAnimationFrame(()=>autoGrowTextarea(true));
     });
 
 
@@ -810,11 +905,13 @@ html.npHome-scope .npOverlayIconWrap{
           textarea.blur();
           clearSampleActive();
           syncStates();
+          requestAnimationFrame(()=>autoGrowTextarea(true));
           return;
         }
 
         // 새로운 샘플 클릭
-        const t = btn.getAttribute("data-sample") || "";
+        const sampleKey = btn.getAttribute("data-sample") || "";
+        const t = SAMPLE_TEXTS[sampleKey] || "";
 
         // 플리커 방지: 상태 전환을 "즉시" 스냅
         snapIntakeVisualUpdate();
@@ -822,6 +919,7 @@ html.npHome-scope .npOverlayIconWrap{
         // 값 먼저 주입 -> isFilled 즉시 반영
         textarea.value = t;
         syncStates();
+        requestAnimationFrame(()=>autoGrowTextarea(true));
 
         // 포커스는 다음 프레임에 (레이아웃/스타일 적용 후)
         requestAnimationFrame(()=>{
