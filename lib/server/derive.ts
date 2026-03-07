@@ -3118,52 +3118,77 @@ export function determineLabelFromProbs(
    ============================================================ */
 
 export 
-function buildReasoningControlDistributionHeuristic(cfv: CFV, ind: AgencyIndicators): RcDistributionOutput {
-  const hi = clamp01(ind?.human_rhythm_index ?? 0);
+function buildReasoningControlDistributionSoftmax(cfv: CFV, ind: AgencyIndicators): RcDistributionOutput {
+  const hi = clamp01(ind?.human_rhythm_index ?? cfv?.hi ?? 0);
   const rd = clamp01(ind?.revision_depth ?? 0);
   const tf = clamp01(ind?.transition_flow ?? 0);
   const sv = clamp01(ind?.structural_variance ?? 0);
 
-  // Deterministic fallback when no logistic model is supplied.
-  // Produces non-zero, stable outputs based on computed structural signals.
+  const aas = clamp01(cfv?.aas ?? 0);
   const ctf = clamp01(cfv?.ctf ?? 0);
+  const rmd = clamp01(cfv?.rmd ?? 0);
+  const rdx = clamp01(cfv?.rdx ?? 0);
+  const eds = clamp01(cfv?.eds ?? 0);
+  const ifd = clamp01(cfv?.ifd ?? 0);
+  const tps = clamp01(cfv?.tps_hist ?? 0);
 
-  let pH = 0.20 + 0.35 * hi + 0.20 * rd + 0.20 * tf - 0.15 * sv + 0.10 * ctf;
-  pH = clamp01(pH);
-  const pA = clamp01(1 - pH);
+  const mid = (x: number) => 1 - Math.min(1, Math.abs(clamp01(x) - 0.5) * 2);
+  const expSafe = (x: number) => Math.exp(Math.max(-8, Math.min(8, x)));
 
-  const final: "Human" | "Hybrid" | "AI" = pH >= 0.67 ? "Human" : pH <= 0.33 ? "AI" : "Hybrid";
+  const humanLogit =
+    1.35 * hi +
+    1.10 * aas +
+    0.75 * rd +
+    0.60 * tf +
+    0.45 * tps +
+    0.35 * ctf -
+    1.15 * rdx -
+    0.35 * sv -
+    0.20 * ifd;
 
-  let human = 0;
-  let hybrid = 0;
-  let ai = 0;
+  const hybridLogit =
+    1.20 * mid(hi) +
+    1.00 * mid(rdx) +
+    0.75 * ctf +
+    0.70 * rmd +
+    0.45 * eds +
+    0.35 * tf +
+    0.25 * mid(aas) -
+    0.15 * sv;
 
-  if (final === "Hybrid") {
-    hybrid = clamp01(2 * Math.min(pH, pA));
-    human = clamp01(pH - hybrid / 2);
-    ai = clamp01(pA - hybrid / 2);
-  } else if (final === "Human") {
-    // BACKENDB split: allocate AI-side mass equally to Hybrid and AI to match json2 fixture.
-    hybrid = clamp01(pA / 2);
-    ai = clamp01(pA / 2);
-    human = clamp01(pH);
-  } else {
-    // BACKENDB split (AI): allocate Human-side mass equally to Hybrid and Human.
-    hybrid = clamp01(pH / 2);
-    human = clamp01(pH / 2);
-    ai = clamp01(pA);
-  }
+  const aiLogit =
+    1.45 * rdx +
+    0.95 * ifd +
+    0.70 * eds +
+    0.35 * sv -
+    1.05 * hi -
+    0.55 * rd -
+    0.35 * aas -
+    0.20 * tps;
 
-  const n = normalize3(human, hybrid, ai);
+  const eH = expSafe(humanLogit);
+  const eM = expSafe(hybridLogit);
+  const eA = expSafe(aiLogit);
+  const s = eH + eM + eA;
 
-  const pct = (x: number) => `${Math.round(clamp01(x) * 100)}%`;
+  const pH = s > 0 ? eH / s : 0.3333;
+  const pM = s > 0 ? eM / s : 0.3333;
+  const pA = s > 0 ? eA / s : 0.3333;
+
+  const probs = [
+    { k: "Human" as Determination, v: pH },
+    { k: "Hybrid" as Determination, v: pM },
+    { k: "AI" as Determination, v: pA },
+  ].sort((a, b) => b.v - a.v);
+
+  const final = probs[0].k;
 
   return {
     rc: {
       reasoning_control_distribution: {
-        Human: pct((n as any).human ?? (n as any).a),
-        Hybrid: pct((n as any).hybrid ?? (n as any).b),
-        AI: pct((n as any).ai ?? (n as any).c),
+        Human: pct(pH),
+        Hybrid: pct(pM),
+        AI: pct(pA),
         final_determination: final,
         determination_sentence: getDeterminationSentence(final),
       },
@@ -6243,7 +6268,6 @@ function deriveAllStrictCompute(input: GptBackendInput, opts: DeriveAllOptions =
     layer_2: raw?.layer_2 ?? {},
     layer_3: raw?.layer_3 ?? {},
   });
-  const rcModel = opts?.rcLogisticModel ?? DEFAULT_RC_MODEL_BACKENDB;
   const activeIdsProvided = asSet(opts?.activeSignalIds);
   const activeIds = activeIdsProvided.size > 0
     ? activeIdsProvided
@@ -6256,27 +6280,10 @@ function deriveAllStrictCompute(input: GptBackendInput, opts: DeriveAllOptions =
       });
   const rcResult = ((cffResult as any)?.status === 'ok')
     ? (() => {
-        const rcDist: any = !rcModel
-          ? buildReasoningControlDistributionHeuristic(
-              cfv as CFV,
-              (((rcStructural as any)?.rc?.structural_control_signals ?? {}) as AgencyIndicators)
-            )
-          : (() => {
-              const pH = computePHumanFromCFV(cfv as CFV, rcModel as any);
-              const pA = clamp01(1 - pH);
-              const d = normalize3(pH, pA / 2, pA / 2);
-              return {
-                rc: {
-                  reasoning_control_distribution: {
-                    Human: pct(d.a),
-                    Hybrid: pct(d.b),
-                    AI: pct(d.c),
-                    final_determination: determineLabelFromProbs(cfv as CFV, pH),
-                    determination_sentence: getDeterminationSentence(determineLabelFromProbs(cfv as CFV, pH)),
-                  },
-                },
-              };
-            })();
+        const rcDist: any = buildReasoningControlDistributionSoftmax(
+          cfv as CFV,
+          (((rcStructural as any)?.rc?.structural_control_signals ?? {}) as AgencyIndicators)
+        );
         let rcObserved: ObservedSignalsRcJson;
         if (activeIds.size === 0) {
           rcObserved = { rc: { observed_structural_signals: { "1": "", "2": "", "3": "", "4": "" } } };
