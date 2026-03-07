@@ -312,10 +312,11 @@ html.npHome-scope .npOverlayIconWrap{
       flex-direction:column;
       justify-content:flex-start;
       padding: 14px 16px 12px;
-
-      /* 바깥 링을 위한 여유 */
       box-shadow: 0 0 0 0 rgba(0,0,0,0);
-      transition: box-shadow .14s ease, border-color .14s ease, height .22s cubic-bezier(.2,.8,.2,1);
+      transition:
+        box-shadow .14s ease,
+        border-color .14s ease,
+        height .85s cubic-bezier(.16,1,.3,1);
     }
 
     html.npHome-scope /* 포커스시 "바깥" 링 */
@@ -350,7 +351,22 @@ html.npHome-scope .npOverlayIconWrap{
       overflow-wrap: break-word;
       word-break: break-word;
       scrollbar-width: thin;
-      transition: height .22s cubic-bezier(.2,.8,.2,1);
+      transition: height .85s cubic-bezier(.16,1,.3,1);
+    }
+
+    html.npHome-scope .intakeMirror{
+      position:absolute;
+      left:-99999px;
+      top:0;
+      visibility:hidden;
+      pointer-events:none;
+      white-space:pre-wrap;
+      overflow-wrap:break-word;
+      word-break:break-word;
+      font: 14px/1.55 var(--font);
+      padding:0;
+      margin:0;
+      width:738px;
     }
 
     html.npHome-scope .intakeText::placeholder{
@@ -538,8 +554,9 @@ html.npHome-scope .npOverlayIconWrap{
     @media (max-width: 860px){
       html.npHome-scope .brandLogo{ width: var(--logoW-m); }
       html.npHome-scope h1{ font-size: 32px; }
-      html.npHome-scope .intakeBox{ width: 100%; min-height: 144px; height: 144px; max-height: 280px; }
-      html.npHome-scope .intakeText{ min-height: 92px; height: 92px; max-height: 214px; }
+      html.npHome-scope .intakeBox{ width: 100%; min-height: 150px; height: 150px; max-height: 292px; }
+      html.npHome-scope .intakeText{ min-height: 96px; height: 96px; max-height: 218px; }
+      html.npHome-scope .intakeMirror{ width: calc(100vw - 72px); }
       html.npHome-scope .intakeTools{ padding-top: 10px; }
       html.npHome-scope .sampleRow{ width: 100%; }
       html.npHome-scope .intakeWrap{ width: 100%; }
@@ -618,6 +635,7 @@ html.npHome-scope .npOverlayIconWrap{
               wrap="soft"
               rows="1"
               ></textarea>
+              <div id="intakeMirror" class="intakeMirror" aria-hidden="true"></div>
 
               <div class="intakeTools" aria-label="Input tools (placeholders)">
                 <button class="iconBtn" type="button" aria-label="Attach file (placeholder)" title="Attach file (placeholder)">
@@ -704,73 +722,59 @@ html.npHome-scope .npOverlayIconWrap{
 };
     const statusOverlay = document.getElementById("npStatusOverlay");
     const statusTitle = document.getElementById("npStatusTitle");
+    const intakeMirror = document.getElementById("intakeMirror");
 
     let sampleSelected = false;
     let isSubmitting = false;
     let stageTimerIds = [];
 
 
+    function syncMirrorSize(){
+      if(!intakeMirror) return;
+      const boxWidth = intakeBox.clientWidth;
+      const padX = 32; // 16 left + 16 right
+      intakeMirror.style.width = Math.max(0, boxWidth - padX) + "px";
+    }
+
     function autoGrowTextarea(animate = true){
       const isMobile = window.innerWidth <= 860;
-      const minText = isMobile ? 92 : 96;
-      const maxText = isMobile ? 214 : 254;
-      const minBox = isMobile ? 144 : 150;
-      const maxBox = isMobile ? 280 : 320;
+      const minText = 96;
+      const maxText = isMobile ? 218 : 254;
+      const minBox = 150;
+      const maxBox = isMobile ? 292 : 320;
 
-      const computed = window.getComputedStyle(textarea);
-      const lineHeight = parseFloat(computed.lineHeight) || 22;
-      const paddingTop = parseFloat(computed.paddingTop) || 0;
-      const paddingBottom = parseFloat(computed.paddingBottom) || 0;
+      syncMirrorSize();
 
-      const previousTextHeight = parseFloat(textarea.style.height || "0") || minText;
-      const previousBoxHeight = parseFloat(intakeBox.style.height || "0") || minBox;
+      const value = textarea.value.replace(/\r\n?/g, "\n");
+      const mirrorText = value.length ? value : " ";
+      intakeMirror.textContent = mirrorText + "\n";
 
-      // Measure natural scroll height without flashing
-      const prevOverflow = textarea.style.overflowY;
-      textarea.style.overflowY = "hidden";
-      textarea.style.height = "auto";
-      const natural = textarea.scrollHeight;
-
-      // Keep initial size stable until content truly wraps/newlines increase rows
-      const estimatedLines = Math.max(1, Math.round((natural - paddingTop - paddingBottom) / lineHeight));
-      const targetText = estimatedLines <= 4
-        ? minText
-        : Math.max(minText, Math.min(natural, maxText));
+      const natural = Math.ceil(intakeMirror.getBoundingClientRect().height);
+      const targetText = Math.max(minText, Math.min(natural, maxText));
 
       const tools = intakeBox.querySelector(".intakeTools");
       const toolsH = tools ? tools.offsetHeight : 38;
-      const boxStyle = window.getComputedStyle(intakeBox);
-      const boxPadTop = parseFloat(boxStyle.paddingTop) || 14;
-      const boxPadBottom = parseFloat(boxStyle.paddingBottom) || 12;
-      const targetBox = Math.max(minBox, Math.min(targetText + toolsH + boxPadTop + boxPadBottom + 10, maxBox));
+      const targetBox = Math.max(minBox, Math.min(targetText + toolsH + 40, maxBox));
+
+      const prevTextTransition = textarea.style.transition;
+      const prevBoxTransition = intakeBox.style.transition;
 
       if(!animate){
-        const prevTextTransition = textarea.style.transition;
-        const prevBoxTransition = intakeBox.style.transition;
         textarea.style.transition = "none";
         intakeBox.style.transition = "none";
-        textarea.style.height = targetText + "px";
-        intakeBox.style.height = targetBox + "px";
-        void textarea.offsetHeight;
-        textarea.style.transition = prevTextTransition;
-        intakeBox.style.transition = prevBoxTransition;
-      } else {
-        // animate only when height actually changes
-        if (Math.abs(previousTextHeight - targetText) > 0.5) {
-          textarea.style.height = targetText + "px";
-        } else {
-          textarea.style.height = previousTextHeight + "px";
-        }
-
-        if (Math.abs(previousBoxHeight - targetBox) > 0.5) {
-          intakeBox.style.height = targetBox + "px";
-        } else {
-          intakeBox.style.height = previousBoxHeight + "px";
-        }
       }
+
+      textarea.style.height = targetText + "px";
+      intakeBox.style.height = targetBox + "px";
 
       const shouldScroll = natural > maxText;
       textarea.style.overflowY = shouldScroll ? "auto" : "hidden";
+
+      if(!animate){
+        void textarea.offsetHeight;
+        textarea.style.transition = prevTextTransition;
+        intakeBox.style.transition = prevBoxTransition;
+      }
     }
 
 
@@ -841,14 +845,14 @@ html.npHome-scope .npOverlayIconWrap{
     function onUserEdit(){
       if(sampleSelected) clearSampleActive();
       syncStates();
-    autoGrowTextarea(false);
-
-    window.addEventListener("resize", ()=>autoGrowTextarea(false));
-      autoGrowTextarea();
-      autoGrowTextarea();
+      autoGrowTextarea(true);
     }
 
     textarea.addEventListener("input", onUserEdit);
+
+    window.addEventListener("resize", ()=>{
+      autoGrowTextarea(false);
+    });
 
 
     function getRawTextareaValue(){
@@ -872,7 +876,7 @@ html.npHome-scope .npOverlayIconWrap{
 
       if(sampleSelected) clearSampleActive();
       syncStates();
-      requestAnimationFrame(()=>autoGrowTextarea(true));
+      requestAnimationFrame(() => autoGrowTextarea(true));
     });
 
 
@@ -905,7 +909,7 @@ html.npHome-scope .npOverlayIconWrap{
           textarea.blur();
           clearSampleActive();
           syncStates();
-          requestAnimationFrame(()=>autoGrowTextarea(true));
+          requestAnimationFrame(() => autoGrowTextarea(true));
           return;
         }
 
@@ -919,7 +923,7 @@ html.npHome-scope .npOverlayIconWrap{
         // 값 먼저 주입 -> isFilled 즉시 반영
         textarea.value = t;
         syncStates();
-        requestAnimationFrame(()=>autoGrowTextarea(true));
+        requestAnimationFrame(() => autoGrowTextarea(true));
 
         // 포커스는 다음 프레임에 (레이아웃/스타일 적용 후)
         requestAnimationFrame(()=>{
@@ -985,6 +989,8 @@ html.npHome-scope .npOverlayIconWrap{
     });
 
     syncStates();
+    autoGrowTextarea(false);
+    requestAnimationFrame(()=>autoGrowTextarea(false));
 
     /* =========================================================
        (1)(2)(3) Entrance sequence + typewriter
