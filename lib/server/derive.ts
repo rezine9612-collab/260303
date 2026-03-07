@@ -6599,12 +6599,26 @@ function deriveAllStrictCompute(input: GptBackendInput, opts: DeriveAllOptions =
     ? (() => {
         try {
           const rfsStyle = computeRfsFromPayloadStrict({
-            cff: { aas: Number((cffResult as any)?.cff8?.AAS), ctf: Number((cffResult as any)?.cff8?.CTF), rmd: Number((cffResult as any)?.cff8?.RMD), rdx: Number((cffResult as any)?.cff8?.RDX), eds: Number((cffResult as any)?.cff8?.EDS), ifd: Number((cffResult as any)?.cff8?.IFD) },
-            rsl: { rsl_control: (rslResult as any).rslAxes.rsl_control, rsl_validation: (rslResult as any).rslAxes.rsl_validation, rsl_hypothesis: (rslResult as any).rslAxes.rsl_hypothesis, rsl_expansion: (rslResult as any).rslAxes.rsl_expansion },
+            cff: {
+              aas: Number((cffResult as any)?.cff8?.AAS),
+              ctf: Number((cffResult as any)?.cff8?.CTF),
+              rmd: Number((cffResult as any)?.cff8?.RMD),
+              rdx: Number((cffResult as any)?.cff8?.RDX),
+              eds: Number((cffResult as any)?.cff8?.EDS),
+              ifd: Number((cffResult as any)?.cff8?.IFD),
+            },
+            rsl: {
+              rsl_control: (rslResult as any).rslAxes.rsl_control,
+              rsl_validation: (rslResult as any).rslAxes.rsl_validation,
+              rsl_hypothesis: (rslResult as any).rslAxes.rsl_hypothesis,
+              rsl_expansion: (rslResult as any).rslAxes.rsl_expansion,
+            },
           });
+
           const rfsJob = Array.isArray(roleConfigs) && roleConfigs.length > 0
             ? computeRfsJobGroupTop3({ axes, arc_level: arcLevelNum }, roleConfigs)
             : { rfs: { summary_lines: [], top_groups: [], recommended_roles_top3: [], recommended_roles_line: "", pattern_interpretation: "" } };
+
           return { status: 'ok', rfsStyle, rfsJob };
         } catch (err: any) {
           return makeInsufficientRfs(err?.message || 'RFS strict computation failed.');
@@ -6612,14 +6626,26 @@ function deriveAllStrictCompute(input: GptBackendInput, opts: DeriveAllOptions =
       })()
     : makeInsufficientRfs('RFS style requires computed CFF axes and derived RSL axes.');
 
-  return { status: 'ok', rfsStyle, rfsJob };
-        } catch (err: any) {
-          return makeInsufficientRfs(err?.message || 'RFS strict computation failed.');
-        }
-      })()
-    : makeInsufficientRfs('RFS requires CFF axes, RSL axes, and roleConfigs.');
-
-  return { status: [rslResult, cffResult, rcResult, rfsResult].every((x: any) => x?.status === 'ok') ? 'ok' : 'insufficient_data', meta: { input_text: inputText, strict_mode: true, contracts: { rsl: 'raw-only basis from extraction + rubric/proxy derivation', cff: 'strict CFF6 evaluation core only; KPF/TPS excluded in MVP A-mode', rc: 'CFV logistic model required; CFV derived from strict CFF + structural HI', rfs: 'strict style axes + non-empty roleConfigs required' } }, raw, rawV1, rslResult, cffResult, rcStructural, rcResult, rfsResult };
+  return {
+    status: [rslResult, cffResult, rcResult, rfsResult].every((x: any) => x?.status === 'ok') ? 'ok' : 'insufficient_data',
+    meta: {
+      input_text: inputText,
+      strict_mode: true,
+      contracts: {
+        rsl: 'raw-only basis from extraction + rubric/proxy derivation',
+        cff: 'strict CFF6 evaluation core only; KPF/TPS excluded in MVP A-mode',
+        rc: 'CFV logistic model required; CFV derived from strict CFF + structural HI',
+        rfs: 'strict style axes + non-empty roleConfigs required',
+      },
+    },
+    raw,
+    rawV1,
+    rslResult,
+    cffResult,
+    rcStructural,
+    rcResult,
+    rfsResult,
+  };
 }
 
 function adaptStrictComputeToOutputJSON2(strictRes: any): OutputJSON2 {
