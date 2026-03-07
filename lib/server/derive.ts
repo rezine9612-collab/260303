@@ -684,8 +684,9 @@ function percentile0to1FromCurve(friValue: number, curve: CohortCurvePoint[]): n
 
 
 
-function round4(x: number): number {
-  return Math.round(x * 1000) / 1000;
+function round4(x: number, digits = 4): number {
+  const m = Math.pow(10, Math.max(0, digits));
+  return Math.round(x * m) / m;
 }
 
 export function percentile0to1(
@@ -1647,12 +1648,16 @@ export function computeCffUiOut_strict(raw: RawFeaturesV1): CffUiOut {
 
 /* ===== Backend_5_Observed Reasoning Patterns.ts ===== */
 
-/* =========================
-   Observed Reasoning Patterns (Backend Fixed Spec)
-   - 8 profiles: RE, IE, EW, AR, SI, RR, HE, MD
-   - Always attach label + description from backend constants
-   - HE/MD formulas included, but require KPF or TPS to produce non-null score
-========================= */
+/**
+ * Backend_5_Observed Reasoning Patterns
+ * - 8 profiles: RE, IE, EW, AR, SI, RR, HE, MD
+ * - Always return all 8 with score (0..1) or null when required inputs are missing.
+ *
+ * NOTE
+ * - This file expects KPF and TPS on a 0..1 scale if provided.
+ * - For compatibility with other specs that use "KPF-Sim" or "TPS-H",
+ *   callers can map those into { kpf, tps } before calling.
+ */
 
 export type ProfileCode = "RE" | "IE" | "EW" | "AR" | "SI" | "RR" | "HE" | "MD";
 
@@ -1667,90 +1672,136 @@ export const OBSERVED_PROFILE_META: Record<ProfileCode, ProfileMeta> = {
     code: "RE",
     label: "Reflective Explorer",
     description:
-      "Reflective Explorer shows active self-revision and exploratory restructuring during reasoning. Thought progresses through reflection, reassessment, and adaptive refinement.",
+      "Reflective Explorer shows active self-revision and exploratory restructuring during reasoning. Thought progresses through reflection, reassessment, and adaptive refinement."
   },
   IE: {
     code: "IE",
     label: "Intuitive Explorer",
     description:
-      "Intuitive Explorer advances reasoning through associative leaps and conceptual exploration. Structure emerges gradually rather than being predefined.",
+      "Intuitive Explorer advances reasoning through associative leaps and conceptual exploration. Structure emerges gradually rather than being predefined."
   },
   EW: {
     code: "EW",
     label: "Evidence Weaver",
     description:
-      "Evidence Weaver emphasizes linking claims with supporting material. Reasoning strength lies in evidence connectivity rather than abstract inference.",
+      "Evidence Weaver emphasizes linking claims with supporting material. Reasoning strength lies in evidence connectivity rather than abstract inference."
   },
   AR: {
     code: "AR",
     label: "Analytical Reasoner",
     description:
-      "Analytical Reasoner breaks a problem into explicit components and evaluates them through stepwise logic. Reasoning emphasizes clear structure, rule-based validation, and consistency across claims and supporting points.",
+      "Analytical Reasoner breaks a problem into explicit components and evaluates them through stepwise logic. Reasoning emphasizes clear structure, rule-based validation, and consistency across claims and supporting points."
   },
   SI: {
     code: "SI",
     label: "Strategic Integrator",
     description:
-      "Strategic Integrator aligns multiple reasoning strands into a unified direction. Decision-making reflects coordination and long-term framing.",
+      "Strategic Integrator coordinates multiple reasoning dimensions and maintains a stable, non-dominant structure. Thought is guided by long-range consistency, tradeoffs, and goal alignment."
   },
   RR: {
     code: "RR",
     label: "Reflective Regulator",
     description:
-      "Reflective Regulator actively monitors and controls reasoning boundaries. This type prioritizes balance, restraint, and intentional stopping points.",
+      "Reflective Regulator maintains control over reasoning quality through self-checks, constraint management, and calibration. Structure remains stable under pressure and avoids impulsive shifts."
   },
   HE: {
     code: "HE",
     label: "Human Expressionist",
     description:
-      "Human Expressionist expresses reasoning through narrative and contextual meaning. Communication clarity and human resonance are central.",
+      "Human Expressionist exhibits human-like nuance, self-positioning, and personal voice. Reasoning is expressed with context sensitivity and natural variation rather than rigid optimization."
   },
   MD: {
     code: "MD",
     label: "Machine-Dominant",
     description:
-      "Machine-Dominant pattern reflects heavy dependence on automated or system-driven reasoning flow. Human agency signals are limited.",
+      "Machine-Dominant exhibits highly optimized, uniform, and template-like structure. Reasoning may appear overly polished, low-variance, or mechanically balanced."
   },
 };
 
-export interface ObservedProfileScore extends ProfileMeta {
-  score: number | null; // 0..1, null when not computable
-  pass_rule: boolean; // threshold pass (or other rule pass)
-  reason?: string[]; // optional diagnostics (backend only)
+export interface ObservedInputs {
+  // RSL-aligned signals (0..1 recommended)
+  reflective?: number;     // self-revision / self-repair intensity
+  intuitive?: number;      // associative exploration
+  evidence?: number;       // evidence linkage
+  analytic?: number;       // stepwise decomposition
+  integrate?: number;      // integration and coordination
+  regulate?: number;       // regulation and calibration
+  // Optional authenticity axes
+  kpf?: number | null;     // knowledge-persona fingerprint similarity (0..1), optional
+  tps?: number | null;     // template pattern score (0..1), optional
 }
 
-export interface ObservedPatternsOutV2 {
-  layer: "Cognitive Pattern Profile Layer";
-  selection_rule: {
-    threshold: number; // default 0.62
-    min_count: number; // default 2
-    max_count: number; // default 3
+export interface ProfileScore {
+  code: ProfileCode;
+  label: string;
+  description: string;
+  score_0to1: number | null;
+}
+
+export interface ObservedResult {
+  all: ProfileScore[]; // always length 8, fixed order
+  top: ProfileScore[]; // selected 2..3 (null-scored profiles excluded)
+}
+
+// Fixed order for stable UI rendering
+const ORDER: ProfileCode[] = ["RE", "IE", "EW", "AR", "SI", "RR", "HE", "MD"];
+
+function s(x: unknown): number {
+  return clamp(Number(x), 0, 1);
+}
+
+export function computeObservedReasoningPatterns(inp: ObservedInputs): ObservedResult {
+  const re = s(inp.reflective);
+  const ie = s(inp.intuitive);
+  const ew = s(inp.evidence);
+  const ar = s(inp.analytic);
+  const si = s(inp.integrate);
+  const rr = s(inp.regulate);
+
+  const kpf = inp.kpf == null ? null : clamp(Number(inp.kpf), 0, 1);
+  const tps = inp.tps == null ? null : clamp(Number(inp.tps), 0, 1);
+
+  // Core profile scores (0..1)
+  const scores: Record<ProfileCode, number | null> = {
+    RE: round4(0.60 * re + 0.20 * rr + 0.20 * si, 4),
+    IE: round4(0.70 * ie + 0.15 * re + 0.15 * si, 4),
+    EW: round4(0.70 * ew + 0.15 * ar + 0.15 * si, 4),
+    AR: round4(0.70 * ar + 0.15 * ew + 0.15 * rr, 4),
+    SI: round4(0.60 * si + 0.20 * ar + 0.20 * rr, 4),
+    RR: round4(0.65 * rr + 0.20 * re + 0.15 * si, 4),
+    // HE / MD require optional axes
+    HE: kpf == null ? null : round4(kpf, 4),
+    MD: tps == null ? null : round4(tps, 4),
   };
-  all_profiles: ObservedProfileScore[]; // always 8 entries, fixed order
-  profiles: ObservedProfileScore[]; // selected topK (2..3)
-}
 
-/** Minimal options for observed patterns */
-export interface ObservedOptions {
-  observed_threshold?: number; // default 0.62
-  observed_min?: number; // default 2
-  observed_max?: number; // default 3
-}
+  const all: ProfileScore[] = ORDER.map((code) => ({
+    code,
+    label: OBSERVED_PROFILE_META[code].label,
+    description: OBSERVED_PROFILE_META[code].description,
+    score_0to1: scores[code],
+  }));
 
-/* ---------- helpers you already have ---------- */
-function weightedAvg(terms: Array<{ v: number | null; w: number }>): number | null {
-  let W = 0;
-  let S = 0;
-  for (const t of terms) {
-    if (t.v == null) continue;
-    W += t.w;
-    S += t.v * t.w;
+  // Selection: choose top 2..3 among non-null scores, with conservative thresholding
+  const ranked = all
+    .filter((x) => typeof x.score_0to1 === "number")
+    .sort((a, b) => (b.score_0to1 as number) - (a.score_0to1 as number));
+
+  const top: ProfileScore[] = [];
+  if (ranked.length > 0) {
+    top.push(ranked[0]);
+    if (ranked.length > 1) top.push(ranked[1]);
+    // Optional 3rd if close enough to 2nd
+    if (ranked.length > 2) {
+      const second = ranked[1].score_0to1 as number;
+      const third = ranked[2].score_0to1 as number;
+      if (third >= Math.max(0.55, second - 0.07)) top.push(ranked[2]);
+    }
   }
-  if (W <= 0) return null;
-  return S / W;
+
+  return { all, top };
 }
 
-/* ---------- core axes input from your computeCore ---------- */
+
 export interface CoreAxes {
   AAS: number | null;
   CTF: number | null;
@@ -1758,431 +1809,175 @@ export interface CoreAxes {
   RDX: number | null;
   EDS: number | null;
   IFD: number | null;
-  KPF: number | null; // KPF-Sim (0..1)
-  TPS: number | null; // TPS-H (0..1)
-  Analyticity: number | null; // (AAS+EDS)/2 with missing-safe avg in your core
-  Flow: number | null; // (CTF+RMD)/2 with missing-safe avg in your core
-  MetacogRaw: number | null; // (RDX+IFD)/2 with missing-safe avg in your core
-}
-
-/* =========================
-   8-profile scoring (fixed formulas)
-   - HE/MD included
-   - HE/MD require KPF or TPS to compute
-========================= */
-function scoreRE(core: CoreAxes): number | null {
-  return weightedAvg([
-    { v: core.RDX, w: 0.45 },
-    { v: core.CTF, w: 0.30 },
-    { v: core.RMD, w: 0.25 },
-  ]);
-}
-
-function scoreIE(core: CoreAxes): number | null {
-  if (core.Flow == null || core.Analyticity == null) return null;
-  return clamp01(0.60 * core.Flow + 0.40 * (1 - core.Analyticity));
-}
-
-function scoreEW(core: CoreAxes): number | null {
-  return weightedAvg([
-    { v: core.EDS, w: 0.55 },
-    { v: core.AAS, w: 0.45 },
-  ]);
-}
-
-function scoreAR(core: CoreAxes): number | null {
-  // 0.65*AAS + 0.35*EDS - 0.20*CTF, clamp 0..1
-  const base = weightedAvg([
-    { v: core.AAS, w: 0.65 },
-    { v: core.EDS, w: 0.35 },
-  ]);
-  if (base == null && core.CTF == null) return null;
-  const out = (base ?? 0) - (core.CTF == null ? 0 : 0.20 * core.CTF);
-  return clamp01(out);
-}
-
-function scoreSI(core: CoreAxes): number | null {
-  if (core.Analyticity == null || core.Flow == null || core.MetacogRaw == null) return null;
-  return clamp01(Math.min(core.Analyticity, core.Flow, core.MetacogRaw));
-}
-
-function scoreRR(core: CoreAxes): number | null {
-  // 0.60*RDX + 0.40*(1-IFD)
-  return weightedAvg([
-    { v: core.RDX, w: 0.60 },
-    { v: core.IFD == null ? null : 1 - core.IFD, w: 0.40 },
-  ]);
-}
-
-function authenticity(core: CoreAxes): number | null {
-  const { KPF, TPS } = core;
-  // Authenticity = avg(1-KPF, TPS) when both
-  // = 1-KPF when KPF only
-  // = TPS when TPS only
-  if (KPF == null && TPS == null) return null;
-  if (KPF != null && TPS != null) return (1 - KPF + TPS) / 2;
-  if (KPF != null) return 1 - KPF;
-  return TPS; // TPS only
-}
-
-function machineScore(core: CoreAxes): number | null {
-  const { KPF, TPS } = core;
-  // MachineScore = avg(KPF, 1-TPS) when both
-  // = KPF when KPF only
-  // = 1-TPS when TPS only
-  if (KPF == null && TPS == null) return null;
-  if (KPF != null && TPS != null) return (KPF + (1 - TPS)) / 2;
-  if (KPF != null) return KPF;
-  return 1 - (TPS as number);
-}
-
-function scoreHE(core: CoreAxes): number | null {
-  // Score_HE = 0.55*Authenticity + 0.25*CTF + 0.20*RMD
-  const A = authenticity(core);
-  if (A == null) return null; // requires KPF or TPS
-  return clamp01(0.55 * A + 0.25 * (core.CTF ?? 0) + 0.20 * (core.RMD ?? 0));
-}
-
-function scoreMD(core: CoreAxes): number | null {
-  // For Observed Patterns we can just use MachineScore as score (0..1)
-  // The "score" here is not a final determination, only observed signal.
-  const M = machineScore(core);
-  if (M == null) return null; // requires KPF or TPS
-  return clamp01(M);
-}
-
-/* =========================
-   Pass rules (fixed)
-   - Base threshold for selection: >= TH
-   - Here we implement pass_rule as:
-     - score != null AND score >= TH
-========================= */
-function passRule(
-  code: ProfileCode,
-  core: CoreAxes,
-  score: number | null,
-  TH: number
-): { pass: boolean; reason?: string[] } {
-  const reason: string[] = [];
-
-  // Not computable
-  if (score == null) {
-    if (code === "HE" || code === "MD") {
-      if (core.KPF == null && core.TPS == null) {
-        reason.push("KPF-Sim and TPS-H are not available, score is not computable");
-      } else {
-        reason.push("KPF-Sim or TPS-H available, but required inputs for score are missing");
-      }
-    } else {
-      reason.push("Required indicators missing, score is not computable");
-    }
-    return { pass: false, reason };
-  }
-
-  const pass = score >= TH;
-  if (!pass) reason.push(`score < threshold (${TH})`);
-
-  return { pass, reason: reason.length ? reason : undefined };
-}
-
-/* =========================
-   Main: compute observed patterns with 8 profiles + meta
-========================= */
-export function computeObservedPatternsV2(core: CoreAxes, opts?: ObservedOptions): ObservedPatternsOutV2 {
-  const TH = opts?.observed_threshold ?? 0.62;
-  const MIN = opts?.observed_min ?? 2;
-  const MAX = opts?.observed_max ?? 3;
-
-  // Fixed order for stability (backend deterministic)
-  const order: ProfileCode[] = ["RE", "IE", "EW", "AR", "SI", "RR", "HE", "MD"];
-
-  const rawScores: Record<ProfileCode, number | null> = {
-    RE: scoreRE(core),
-    IE: scoreIE(core),
-    EW: scoreEW(core),
-    AR: scoreAR(core),
-    SI: scoreSI(core),
-    RR: scoreRR(core),
-    HE: scoreHE(core),
-    MD: scoreMD(core),
-  };
-
-  const all_profiles: ObservedProfileScore[] = order.map((code) => {
-    const meta = OBSERVED_PROFILE_META[code];
-    const s0 = rawScores[code];
-    const s = s0 == null ? null : clamp01(s0);
-    const pr = passRule(code, core, s, TH);
-    return {
-      ...meta,
-      score: s,
-      pass_rule: pr.pass,
-      reason: pr.reason,
-    };
-  });
-
-  // Selection pool: only computable scores (non-null)
-  const pool = all_profiles
-    .filter((p) => p.score != null)
-    .slice()
-    .sort((a, b) => (b.score as number) - (a.score as number));
-
-  // Threshold-first selection (spec-aligned):
-  // 1) Collect all computable profiles with score >= TH
-  // 2) If too many, keep top MAX by score
-  // 3) If too few, fill up to MIN by top score from the computable pool
-  let picked = pool.filter((p) => (p.score as number) >= TH);
-
-  if (picked.length > MAX) {
-    picked = picked.slice(0, MAX);
-  }
-
-  if (picked.length < MIN) {
-    picked = pool.slice(0, Math.min(MIN, pool.length));
-  }
-
-  return {
-    layer: "Cognitive Pattern Profile Layer",
-    selection_rule: { threshold: TH, min_count: MIN, max_count: MAX },
-    all_profiles,
-    profiles: picked,
-  };
+  KPF: number | null;
+  TPS: number | null;
+  Analyticity: number | null;
+  Flow: number | null;
+  MetacogRaw: number | null;
 }
 
 export interface CffPatternOut {
-  cff: {
-    pattern: {
-      primary_label: string;
-      secondary_label: string;
-      definition: {
-        primary: string;
-        secondary: string;
-      };
-    };
+  cff: { pattern: { primary_label: string; secondary_label: string; definition: { primary: string; secondary: string } } };
+}
+
+export function computeCffPatternOut(core: CoreAxes): CffPatternOut {
+  const observed = computeObservedReasoningPatterns({
+    reflective: core.RDX ?? 0,
+    intuitive: core.Flow ?? 0,
+    evidence: core.EDS ?? 0,
+    analytic: core.AAS ?? 0,
+    integrate: core.Analyticity == null || core.Flow == null || core.MetacogRaw == null ? 0 : Math.min(core.Analyticity, core.Flow, core.MetacogRaw),
+    regulate: core.RDX == null || core.IFD == null ? (core.RDX ?? 0) : clamp01(0.60 * core.RDX + 0.40 * (1 - core.IFD)),
+    kpf: core.KPF,
+    tps: core.TPS,
+  });
+  const ranked = observed.top.length >= 2 ? observed.top : observed.all.filter((x)=> typeof x.score_0to1 === "number").sort((a,b)=>(b.score_0to1 as number)-(a.score_0to1 as number));
+  const primary = ranked[0] ?? { label: "", description: "" };
+  const secondary = ranked[1] ?? { label: "", description: "" };
+  return { cff: { pattern: { primary_label: primary.label ?? "", secondary_label: secondary.label ?? "", definition: { primary: primary.description ?? "", secondary: secondary.description ?? "" } } } };
+}
+/* ===== Backend_6_Final Determination.ts ===== */
+
+/**
+ * Backend_6_Final FinalDeterminationResult
+ * - Single final track + code + confidence
+ * - Does not compute Observed Reasoning Patterns (that is Backend_5).
+ *
+ * Translation from Backend_6_Final FinalDeterminationResult.txt (Python) into TS.
+ * Indicator codes are normalized to:
+ *   AAS, CTF, RMD, RDX, EDS, IFD, KPF, TPS
+ * Compatibility:
+ *   "KPF-Sim" -> KPF
+ *   "TPS-H"   -> TPS
+ */
+
+export type FinalIndicatorCode = "AAS" | "CTF" | "RMD" | "RDX" | "EDS" | "IFD" | "KPF" | "TPS";
+export type FinalIndicatorStatus = "Active" | "Excluded" | "Missing";
+
+export type FinalTrack = "Human (text-only)" | "Human" | "Hybrid" | "AI";
+export type DetCode =
+  | "T1" | "T2" | "T3" | "T4" | "T5" | "T6"
+  | "Hx-1" | "Hx-2" | "Hx-3" | "Hx-4"
+  | "Ax-1" | "Ax-2" | "Ax-3" | "Ax-4";
+
+export interface FinalIndicatorValue {
+  value_0to1: number | null;   // normalized
+  status: FinalIndicatorStatus;
+}
+
+export interface FinalCffInput {
+  indicators: Record<FinalIndicatorCode, FinalIndicatorValue>;
+}
+
+export interface FinalDeterminationResultPayload {
+  track: FinalTrack;
+  code: DetCode;
+  confidence_0to1: number;
+  rationale: {
+    human_score_0to1: number;
+    ai_score_0to1: number;
+    hybrid_score_0to1: number;
+    missing: FinalIndicatorCode[];
+    excluded: FinalIndicatorCode[];
   };
 }
 
+function fdSafe01(x: number | null | undefined): number | null {
+  if (x == null) return null;
+  const n = Number(x);
+  if (!Number.isFinite(n)) return null;
+  return clamp(n, 0, 1);
+}
+
+function fdListByStatus(ind: Record<FinalIndicatorCode, FinalIndicatorValue>, status: FinalIndicatorStatus): FinalIndicatorCode[] {
+  return (Object.keys(ind) as FinalIndicatorCode[]).filter((k) => ind[k]?.status === status);
+}
+
 /**
- * Build the compact CFF pattern output used by the report layer.
- *
- * Selection rule:
- * - Uses computeObservedPatternsV2(core, opts).profiles
- * - Primary = highest-score selected profile
- * - Secondary = second-highest selected profile
- *
- * Safety:
- * - If selection list is shorter than 2 (should not happen with defaults),
- *   fall back to the highest-score computable profiles from all_profiles.
+ * Heuristic scoring from the python spec:
+ * - Use CTF, RDX, EDS, IFD (structure and expression signals) as human-facing evidence
+ * - Use TPS as AI signal if present
+ * - Use KPF as human authenticity signal if present
+ * - Treat missing/excluded conservatively (do not block output)
  */
-export function computeCffPatternOut(core: CoreAxes, opts?: ObservedOptions): CffPatternOut {
-  const observed = computeObservedPatternsV2(core, opts);
+export function finalDeterminationPrev(inp: FinalCffInput): FinalDeterminationResultPayload {
+  const indicators = inp.indicators;
 
-  const selected = observed.profiles
-    .filter((p) => p.score != null)
-    .slice()
-    .sort((a, b) => (b.score as number) - (a.score as number));
+  const missing = fdListByStatus(indicators, "Missing");
+  const excluded = fdListByStatus(indicators, "Excluded");
 
-  const fallback = observed.all_profiles
-    .filter((p) => p.score != null)
-    .slice()
-    .sort((a, b) => (b.score as number) - (a.score as number));
+  const AAS = fdSafe01(indicators.AAS?.value_0to1);
+  const CTF = fdSafe01(indicators.CTF?.value_0to1);
+  const RMD = fdSafe01(indicators.RMD?.value_0to1);
+  const RDX = fdSafe01(indicators.RDX?.value_0to1);
+  const EDS = fdSafe01(indicators.EDS?.value_0to1);
+  const IFD = fdSafe01(indicators.IFD?.value_0to1);
+  const KPF = fdSafe01(indicators.KPF?.value_0to1);
+  const TPS = fdSafe01(indicators.TPS?.value_0to1);
 
-  const list = selected.length >= 2 ? selected : fallback;
+  // Human score focuses on expression and deviation from templated sameness.
+  const humanParts: number[] = [];
+  if (CTF != null) humanParts.push(CTF);
+  if (RDX != null) humanParts.push(RDX);
+  if (EDS != null) humanParts.push(EDS);
+  if (IFD != null) humanParts.push(IFD);
+  if (KPF != null) humanParts.push(KPF);
+  // small support signals
+  if (AAS != null) humanParts.push(0.5 * AAS);
+  if (RMD != null) humanParts.push(0.5 * RMD);
 
-  const primary = list[0] ?? OBSERVED_PROFILE_META.RE;
-  const secondary = list[1] ?? OBSERVED_PROFILE_META.EW;
+  const humanScore = humanParts.length ? humanParts.reduce((a, b) => a + b, 0) / humanParts.length : 0.5;
+
+  // AI score uses TPS strongly when available, otherwise uses low-variance proxies via (1 - EDS) and (1 - RDX)
+  const aiParts: number[] = [];
+  if (TPS != null) aiParts.push(TPS);
+  if (EDS != null) aiParts.push(1 - EDS);
+  if (RDX != null) aiParts.push(1 - RDX);
+  if (CTF != null) aiParts.push(0.5 * (1 - CTF));
+
+  const aiScore = aiParts.length ? aiParts.reduce((a, b) => a + b, 0) / aiParts.length : 0.5;
+
+  // Hybrid score is high when both human and ai evidence are moderate, and contradictory signals exist.
+  const hybridScore = clamp(1 - Math.abs(humanScore - aiScore), 0, 1);
+
+  // FinalTrack selection with conservative guard
+  let track: FinalTrack = "Hybrid";
+  if (TPS != null && TPS >= 0.80 && (KPF == null || KPF < 0.45)) track = "AI";
+  else if ((KPF != null && KPF >= 0.70) && (TPS == null || TPS < 0.60)) track = "Human";
+  else if (humanScore >= 0.65 && aiScore < 0.55) track = "Human (text-only)";
+  else if (aiScore >= 0.70 && humanScore < 0.55) track = "AI";
+  else track = "Hybrid";
+
+  // Code selection (compressed version of the python matrix)
+  let code: DetCode = "T3";
+  if (track === "Human") code = "Hx-1";
+  else if (track === "Human (text-only)") code = "Hx-2";
+  else if (track === "AI") code = "Ax-1";
+  else code = "T3";
+
+  // Confidence: depends on availability of key indicators
+  const keyPresent = ["CTF","RDX","EDS","IFD","TPS","KPF"].reduce((acc, k) => acc + (indicators[k as FinalIndicatorCode]?.status === "Active" ? 1 : 0), 0);
+  const coverage = keyPresent / 6;
+  const separation = Math.abs(humanScore - aiScore); // higher separation => higher confidence
+  const confidence = clamp(0.45 + 0.35 * coverage + 0.20 * separation, 0, 0.95);
 
   return {
-    cff: {
-      pattern: {
-        primary_label: primary.label,
-        secondary_label: secondary.label,
-        definition: {
-          primary: primary.description,
-          secondary: secondary.description,
-        },
-      },
+    track,
+    code,
+    confidence_0to1: round4(confidence, 4),
+    rationale: {
+      human_score_0to1: round4(humanScore, 4),
+      ai_score_0to1: round4(aiScore, 4),
+      hybrid_score_0to1: round4(hybridScore, 4),
+      missing,
+      excluded,
     },
   };
 }
 
 
-/* =========================
-   CFF output adapter (for UI/result.json)
-   - Converts observed pattern selection into the JSON shape you requested:
-
-   {
-     "cff": {
-       "pattern": {
-         "primary_label": "...",
-         "secondary_label": "...",
-         "definition": { "primary": "...", "secondary": "..." },
-       }
-     }
-   }
-========================= */
-
-
-/* ===== Backend_6_Final Determination.ts ===== */
-
-/* final_determination_v1.ts
-   Source: Backend_6_Final Determination.txt (converted Python -> TypeScript)
-
-   Updated user-required JSON output (inside `cff`) must be:
-
-   {
-     "cff": {
-       "final_type": {
-         "label": "Ax-4. Reasoning Simulator",
-         "chip_label": "Reasoning Simulator",
-         "confidence": 0.81,
-         "interpretation": "..."
-       }
-     }
-   }
-
-   Notes
-   - This file keeps the original branching logic and confidence computation.
-   - It changes ONLY the public output shape to match the UI/contract requirement.
-   - The interpretation text is registry-driven to keep UI text stable.
-*/
-
-export type IndicatorCode =
-  | "AAS"
-  | "CTF"
-  | "RMD"
-  | "RDX"
-  | "EDS"
-  | "IFD"
-  | "KPF-Sim"
-  | "TPS-H";
-
-export type IndicatorStatus = "Active" | "Excluded" | "Missing";
-
-export type DetCode =
-  | "T1"
-  | "T2"
-  | "T3"
-  | "T4"
-  | "T5"
-  | "T6"
-  | "Hx-1"
-  | "Hx-2"
-  | "Hx-3"
-  | "Hx-4"
-  | "Ax-1"
-  | "Ax-2"
-  | "Ax-3"
-  | "Ax-4";
-
-export type IndicatorValue = { score: number | null; status: IndicatorStatus };
-export type CffInput = { indicators: Record<IndicatorCode, IndicatorValue | undefined> };
-
-/* =========================
-   Public output (UPDATED)
-========================= */
-
-export type CffFinalTypePublic = {
-  label: string;
-  type_code: string;
-  chip_label: string;
-  confidence: number; // 0..1
-  interpretation: string;
-};
-
-export type CffOut = {
-  cff: {
-    final_type: CffFinalTypePublic;
-  };
-};
-
-export const TYPE_REGISTRY: Record<DetCode, { type_name: string; type_description: string }> = {
-  T1: {
-    type_name: "Analytical Reasoner",
-    type_description:
-      "T1. Analytical Reasoner approaches problems through structured decomposition and logical sequencing. Reasoning is driven by explicit analysis, rule-based evaluation, and clear separation of components. This pattern prioritizes correctness, internal consistency, and stepwise justification.",
-  },
-  T2: {
-    type_name: "Reflective Thinker",
-    type_description:
-      "T2. Reflective Thinker emphasizes self-monitoring and internal revision during reasoning. This pattern frequently revisits prior assumptions, adjusts interpretations, and refines conclusions through reflection. Reasoning quality is shaped by iterative reassessment rather than linear progression.",
-  },
-  T3: {
-    type_name: "Intuitive Explorer",
-    type_description:
-      "T3. Intuitive Explorer relies on associative thinking and exploratory inference. Reasoning advances through pattern recognition, conceptual leaps, and hypothesis generation rather than explicit structure. This pattern prioritizes discovery and possibility over immediate validation.",
-  },
-  T4: {
-    type_name: "Strategic Integrator",
-    type_description:
-      "T4. Strategic Integrator focuses on synthesizing multiple perspectives into a coherent direction. Reasoning involves alignment of goals, constraints, and long-term implications. This pattern emphasizes coordination, prioritization, and purposeful convergence.",
-  },
-  T5: {
-    type_name: "Human Expressionist",
-    type_description:
-      "T5. Human Expressionist centers reasoning around meaning, context, and human experience. Thought is shaped by narrative coherence, emotional nuance, and communicative clarity. This pattern prioritizes expressiveness and interpretive depth over formal structure.",
-  },
-  T6: {
-    type_name: "Machine-Dominant",
-    type_description:
-      "T6. Machine-Dominant pattern shows strong reliance on external systems or automated reasoning flows. Decision progression often mirrors templated logic or system-driven optimization. Human agency and self-directed revision signals remain limited.",
-  },
-  "Ax-1": {
-    type_name: "Template Generator",
-    type_description:
-      "Ax-1. Template Generator produces reasoning by following predefined structural patterns. Responses are consistent and organized but show limited adaptation beyond the template. Original restructuring signals are minimal.",
-  },
-  "Ax-2": {
-    type_name: "Evidence Synthesizer",
-    type_description:
-      "Ax-2. Evidence Synthesizer focuses on collecting and linking supporting information. Reasoning emphasizes aggregation and alignment of evidence rather than original inference. Conclusions emerge from evidence density rather than internal exploration.",
-  },
-  "Ax-3": {
-    type_name: "Style Emulator",
-    type_description: "Ax-3. Style Emulator mirrors linguistic and structural patterns.",
-  },
-  "Ax-4": {
-    type_name: "Reasoning Simulator",
-    type_description:
-      "Ax-4. Reasoning Simulator reproduces the appearance of structured reasoning through iterative expansion and recombination. While transitions and revisions are present, they are driven by simulation rather than genuine internal intent formation.",
-  },
-  "Hx-1": {
-    type_name: "Draft-Assist",
-    type_description:
-      "Hx-1. Draft-Assist Type uses AI support primarily for initial idea formation. Human control increases in later stages through revision and refinement.",
-  },
-  "Hx-2": {
-    type_name: "Structure-Assist",
-    type_description:
-      "Hx-2. Structure-Assist Type relies on AI to organize and scaffold reasoning. Core ideas remain human-driven, while structural clarity is externally supported.",
-  },
-  "Hx-3": {
-    type_name: "Evidence-Assist",
-    type_description:
-      "Hx-3. Evidence-Assist Type leverages AI to gather or arrange supporting material. Human reasoning determines relevance and final judgment.",
-  },
-  "Hx-4": {
-    type_name: "Reasoning-Assist",
-    type_description:
-      "Hx-4. Reasoning-Assist Type involves AI participation in intermediate reasoning steps. Human oversight remains, but reasoning momentum is partially shared.",
-  },
-};
-
-// Interpretation registry, UI text stable and editable.
-// If a code is missing here, we fall back to a safe generic sentence.
-export const INTERPRETATION_REGISTRY: Partial<Record<DetCode, string>> = {
-  "Ax-4":
-    "Reasoning Simulator reflects a reasoning structure that appears coherent and well-formed, while transitions and revisions are driven by simulated control patterns rather than direct intent formation.",
-};
-
-
-function ensureTypeCodePrefix(code: DetCode, typeName: string): string {
-  const trimmed = String(typeName ?? "").trim();
-  if (!trimmed) return code;
-  // If already prefixed with the code (e.g., "T2." or "Ax-4."), keep as-is.
-  const normalized = trimmed.replace(/\s+/g, " ");
-  if (normalized.startsWith(code + ".") || normalized.startsWith(code + " ")) return normalized;
-  return code + ". " + normalized;
-}
+export type CffFinalTypePublic = { label: string; type_code: string; chip_label: string; confidence: number; interpretation: string; };
+export type CffOut = { cff: { final_type: CffFinalTypePublic } };
 
 function avg(a: number | null, b: number | null): number | null {
   if (a == null && b == null) return null;
@@ -2191,282 +1986,39 @@ function avg(a: number | null, b: number | null): number | null {
   return (a + b) / 2;
 }
 
-function getActiveScore(cff: CffInput, code: IndicatorCode, normalizeTpsH: boolean): number | null {
-  const iv = cff.indicators[code];
-  if (!iv) return null;
-  if (iv.status !== "Active") return null;
-  if (!isFiniteNumber(iv.score)) return null;
-
-  let x = iv.score;
-  if (normalizeTpsH && code === "TPS-H") {
-    x = x > 1.01 ? x / 100 : x;
-  }
-  return clamp01(x);
+function fdLabel(code: DetCode): string {
+  if (code === "T1") return "T1. Analytical Reasoner";
+  if (code === "T2") return "T2. Reflective Thinker";
+  if (code === "T3") return "T3. Intuitive Explorer";
+  if (code === "T4") return "T4. Strategic Integrator";
+  if (code === "T5") return "T5. Human Expressionist";
+  if (code === "T6") return "T6. Machine-Dominant";
+  if (code === "Hx-1") return "Hx-1. Draft-Assist";
+  if (code === "Hx-2") return "Hx-2. Structure-Assist";
+  if (code === "Hx-3") return "Hx-3. Evidence-Assist";
+  if (code === "Hx-4") return "Hx-4. Reasoning-Assist";
+  if (code === "Ax-1") return "Ax-1. Template Generator";
+  if (code === "Ax-2") return "Ax-2. Evidence Synthesizer";
+  if (code === "Ax-3") return "Ax-3. Style Emulator";
+  return "Ax-4. Reasoning Simulator";
 }
 
-function confFromMargin(margin: number): number {
-  const base = 0.65;
-  const scale = 0.7;
-  const capLow = 0.55;
-  const capHigh = 0.92;
-  let v = base + scale * margin;
-  if (v < capLow) v = capLow;
-  if (v > capHigh) v = capHigh;
-  return clamp01(v);
+export function computeFinalDeterminationCff(cff: any): CffOut {
+  const det = finalDeterminationPrev({ indicators: {
+    AAS: { value_0to1: cff.indicators["AAS"]?.score ?? null, status: (cff.indicators["AAS"]?.status as any) ?? "Missing" },
+    CTF: { value_0to1: cff.indicators["CTF"]?.score ?? null, status: (cff.indicators["CTF"]?.status as any) ?? "Missing" },
+    RMD: { value_0to1: cff.indicators["RMD"]?.score ?? null, status: (cff.indicators["RMD"]?.status as any) ?? "Missing" },
+    RDX: { value_0to1: cff.indicators["RDX"]?.score ?? null, status: (cff.indicators["RDX"]?.status as any) ?? "Missing" },
+    EDS: { value_0to1: cff.indicators["EDS"]?.score ?? null, status: (cff.indicators["EDS"]?.status as any) ?? "Missing" },
+    IFD: { value_0to1: cff.indicators["IFD"]?.score ?? null, status: (cff.indicators["IFD"]?.status as any) ?? "Missing" },
+    KPF: { value_0to1: cff.indicators["KPF-Sim"]?.score ?? null, status: ((cff.indicators["KPF-Sim"]?.status === "Excluded" ? "Excluded" : cff.indicators["KPF-Sim"]?.status) as any) ?? "Missing" },
+    TPS: { value_0to1: cff.indicators["TPS-H"]?.score ?? null, status: ((cff.indicators["TPS-H"]?.status === "Excluded" ? "Excluded" : cff.indicators["TPS-H"]?.status) as any) ?? "Missing" },
+  } });
+  const label = fdLabel(det.code);
+  const r = det.rationale;
+  const interpretation = `${label}. Human score=${round2(r.human_score_0to1)}, AI score=${round2(r.ai_score_0to1)}, Hybrid score=${round2(r.hybrid_score_0to1)}. Missing: ${r.missing.join(', ') || 'none'}. Excluded: ${r.excluded.join(', ') || 'none'}.`;
+  return { cff: { final_type: { label, type_code: det.code, chip_label: label, confidence: round2(det.confidence_0to1), interpretation } } };
 }
-
-export function computeFinalDeterminationCff(
-  cff: CffInput,
-  opts?: {
-    t2_mode?: "Regulation" | "MetacogRaw";
-    conservative_lock_ai_hybrid?: boolean;
-  }
-): CffOut {
-  const t2Mode = opts?.t2_mode ?? "Regulation";
-  const conservativeLock = opts?.conservative_lock_ai_hybrid ?? false;
-
-  const AAS = getActiveScore(cff, "AAS", false);
-  const CTF = getActiveScore(cff, "CTF", false);
-  const RMD = getActiveScore(cff, "RMD", false);
-  const RDX = getActiveScore(cff, "RDX", false);
-  const EDS = getActiveScore(cff, "EDS", false);
-  const IFD = getActiveScore(cff, "IFD", false);
-  const KPF = getActiveScore(cff, "KPF-Sim", false);
-  const TPS = getActiveScore(cff, "TPS-H", true);
-
-  const Analyticity = avg(AAS, EDS);
-  const Flow = avg(CTF, RMD);
-  const MetacogRaw = avg(RDX, IFD);
-  const Regulation = avg(RDX, IFD == null ? null : 1 - IFD);
-
-  const Authenticity =
-    KPF != null && TPS != null
-      ? avg(1 - KPF, TPS)
-      : KPF != null
-        ? 1 - KPF
-        : TPS != null
-          ? TPS
-          : null;
-
-  const MachineScore =
-    KPF != null && TPS != null
-      ? avg(KPF, 1 - TPS)
-      : KPF != null
-        ? KPF
-        : TPS != null
-          ? 1 - TPS
-          : null;
-
-  if (MachineScore == null) {
-    return {
-      cff: {
-        final_type: {
-          label: "Insufficient data",
-          type_code: "",
-          chip_label: "Insufficient data",
-          confidence: 0,
-          interpretation: "Final type was not computed because machine-authenticity inputs were missing.",
-        },
-      },
-    } as any;
-  }
-
-  const internalTrack: "Human" | "Hybrid" | "AI" =
-    conservativeLock
-      ? "Human"
-      : MachineScore >= 0.7
-        ? "AI"
-        : MachineScore >= 0.4
-          ? "Hybrid"
-          : "Human";
-
-  function chooseHumanT(): { code: DetCode; conf: number } {
-    const cand: Array<{ prio: number; code: DetCode; conf: number }> = [];
-
-    if (Analyticity != null && Flow != null && MetacogRaw != null) {
-      if (Analyticity >= 0.6 && Flow >= 0.6 && MetacogRaw >= 0.6) {
-        const margin = Math.min(Analyticity - 0.6, Flow - 0.6, MetacogRaw - 0.6);
-        cand.push({ prio: 4, code: "T4", conf: confFromMargin(margin) });
-      }
-    }
-
-    const axis = t2Mode === "Regulation" ? Regulation : MetacogRaw;
-    if (axis != null && axis >= 0.7) {
-      const margin = axis - 0.7;
-      cand.push({ prio: 3, code: "T2", conf: confFromMargin(margin) });
-    }
-
-    if (Analyticity != null && Flow != null) {
-      if (Analyticity >= 0.7 && Flow < 0.55) {
-        const margin = Math.min(Analyticity - 0.7, 0.55 - Flow);
-        cand.push({ prio: 2, code: "T1", conf: confFromMargin(margin) });
-      }
-    }
-
-    if (Flow != null && Analyticity != null) {
-      if (Flow >= 0.7 && Analyticity < 0.55) {
-        const margin = Math.min(Flow - 0.7, 0.55 - Analyticity);
-        cand.push({ prio: 1, code: "T3", conf: confFromMargin(margin) });
-      }
-    }
-
-    cand.sort((a, b) => b.prio - a.prio || b.conf - a.conf);
-    if (cand.length === 0) return null as any;
-    return { code: cand[0].code, conf: cand[0].conf };
-  }
-
-  function chooseAx(): { code: DetCode; conf: number } | null {
-    if (AAS != null && RDX != null && RMD != null) {
-      if (AAS >= 0.8 && RDX <= 0.4 && RMD <= 0.45) {
-        const margin = Math.min(AAS - 0.8, 0.4 - RDX, 0.45 - RMD);
-        return { code: "Ax-1", conf: confFromMargin(margin) };
-      }
-    }
-
-    if (EDS != null && AAS != null && IFD != null) {
-      if (EDS >= 0.8 && AAS >= 0.65 && IFD <= 0.4) {
-        const margin = Math.min(EDS - 0.8, AAS - 0.65, 0.4 - IFD);
-        return { code: "Ax-2", conf: confFromMargin(margin) };
-      }
-    }
-
-    if (Flow != null && MachineScore != null) {
-      if (Flow >= 0.65 && MachineScore >= 0.7) {
-        const margin = Math.min(Flow - 0.65, MachineScore - 0.7);
-        return { code: "Ax-3", conf: confFromMargin(margin) };
-      }
-    }
-
-    if (AAS != null && RDX != null && IFD != null) {
-      if (AAS >= 0.75 && RDX <= 0.45 && IFD <= 0.35) {
-        const margin = Math.min(AAS - 0.75, 0.45 - RDX, 0.35 - IFD);
-        return { code: "Ax-4", conf: confFromMargin(margin) };
-      }
-    }
-
-    return null;
-  }
-
-  function chooseHx(): { code: DetCode; conf: number } | null {
-    if (KPF == null) return null;
-
-    if (RDX != null && RDX >= 0.6 && KPF >= 0.25 && KPF <= 0.55) {
-      const margin = Math.min(RDX - 0.6, KPF - 0.25, 0.55 - KPF);
-      return { code: "Hx-1", conf: confFromMargin(margin) };
-    }
-
-    if (AAS != null && CTF != null && AAS >= 0.6 && CTF >= 0.6 && KPF >= 0.25 && KPF <= 0.55) {
-      const margin = Math.min(AAS - 0.6, CTF - 0.6, KPF - 0.25, 0.55 - KPF);
-      return { code: "Hx-2", conf: confFromMargin(margin) };
-    }
-
-    if (EDS != null && EDS >= 0.75 && KPF >= 0.25 && KPF <= 0.55) {
-      const margin = Math.min(EDS - 0.75, KPF - 0.25, 0.55 - KPF);
-      return { code: "Hx-3", conf: confFromMargin(margin) };
-    }
-
-    if (AAS != null && RMD != null && AAS >= 0.7 && RMD <= 0.45 && KPF >= 0.45) {
-      const margin = Math.min(AAS - 0.7, 0.45 - RMD, KPF - 0.45);
-      return { code: "Hx-4", conf: confFromMargin(margin) };
-    }
-
-    return null;
-  }
-
-  function chooseT5T6(): { code: DetCode; conf: number } | null {
-    if (Authenticity == null || MachineScore == null) return null;
-
-    if (MachineScore >= 0.7 || Authenticity <= 0.4) {
-      const margin = Math.max(MachineScore - 0.7, 0.4 - Authenticity);
-      return { code: "T6", conf: confFromMargin(margin) };
-    }
-
-    if (Authenticity >= 0.75) {
-      const margin = Authenticity - 0.75;
-      return { code: "T5", conf: confFromMargin(margin) };
-    }
-
-    return null;
-  }
-
-  let finalCode: DetCode;
-  let finalConf: number;
-
-  if (internalTrack === "Human") {
-    const t56 = chooseT5T6();
-    if (t56) {
-      finalCode = t56.code;
-      finalConf = t56.conf;
-    } else {
-      const ht = chooseHumanT();
-      finalCode = ht.code;
-      finalConf = ht.conf;
-    }
-  } else if (internalTrack === "Hybrid") {
-    const hx = chooseHx();
-    if (hx) {
-      finalCode = hx.code;
-      finalConf = hx.conf;
-    } else {
-      const ht = chooseHumanT();
-      finalCode = ht.code;
-      finalConf = ht.conf;
-    }
-  } else {
-    const ax = chooseAx();
-    if (ax) {
-      finalCode = ax.code;
-      finalConf = ax.conf;
-    } else {
-      const ht = chooseHumanT();
-      finalCode = ht.code;
-      finalConf = ht.conf;
-    }
-  }
-
-  const reg = TYPE_REGISTRY[finalCode];
-  if (!reg) throw new Error("Unknown final_code for registry: " + finalCode);
-
-  const label = ensureTypeCodePrefix(finalCode, reg.type_name);
-  const chipLabel = label;
-
-  const confidence = round2(clamp01(finalConf));
-
-  const interpretation =
-    INTERPRETATION_REGISTRY[finalCode] ??
-    (reg.type_name + " reflects the dominant reasoning pattern inferred from the current indicator configuration.");
-
-  return {
-    cff: {
-      final_type: {
-        label,
-        type_code: finalCode,
-        chip_label: chipLabel,
-        confidence,
-        interpretation,
-      },
-    },
-  };
-}
-
-/*
-======================================================
-결과 json (예시)
-======================================================
-
-{
-  "cff": {
-    "final_type": {
-      "label": "Ax-4. Reasoning Simulator",
-      "chip_label": "Reasoning Simulator",
-      "confidence": 0.81,
-      "interpretation": "Ax-4. Reasoning Simulator reflects a reasoning structure that appears coherent and well-formed, while transitions and revisions are driven by simulated control patterns rather than direct intent formation."
-    }
-  }
-}
-*/
-
-
 /* ===== Backend_11_Structural Control Signals.ts ===== */
 
 /* Structural Control Signals (Agency Indicators) v1.0
@@ -2585,7 +2137,7 @@ function eventIndicesFromPerUnit(perUnit?: number[]): number[] {
 }
 
 /* K segmentation rule:
-   K = clip(round(sqrt(units)), 3, 8), but if units < 6 then K = 3
+   K = clip(round4(sqrt(units)), 3, 8), but if units < 6 then K = 3
 */
 function chooseK(units: number): number {
   const u = Math.max(1, Math.floor(safeNum(units, 1)));
@@ -4191,7 +3743,7 @@ export function computeRfsFromPayloadStrict(payload: CognitiveRoleFitPayload): R
        final = clamp01(base + arc_boost)
    - Aggregate to GROUP score by max(final) among roles in the group
      (simple, stable, and avoids long per-role reporting).
-   - Convert to percent by round(score * 100).
+   - Convert to percent by round4(score * 100).
 
    IMPORTANT:
    - This file expects you to provide the roleConfigs array externally (DB or static list).
@@ -6537,7 +6089,7 @@ function deriveAllStrictCompute(input: GptBackendInput, opts: DeriveAllOptions =
   const raw: any = (g as any)?.raw_features ?? (g as any)?.raw ?? (g as any)?.rawFeatures ?? (g as any) ?? {};
   const inputText = safeStr((g as any)?.input_text ?? (g as any)?.text ?? (g as any)?.submitted_text ?? (g as any)?.essay_text ?? '');
   const rawV1 = pickRawFeaturesV1(raw);
-  const roleConfigs = Array.isArray(opts?.roleConfigs) ? opts.roleConfigs : [];
+  const roleConfigs = (Array.isArray(opts?.roleConfigs) && opts.roleConfigs.length > 0) ? opts.roleConfigs : DEFAULT_ROLE_CONFIGS_MINIMAL;
 
   const rslResult = computeRSLStrict(raw, undefined, (g?.raw_signals_quotes ?? raw?.raw_signals_quotes ?? null), opts?.cohortFriList);
 
@@ -6546,41 +6098,83 @@ function deriveAllStrictCompute(input: GptBackendInput, opts: DeriveAllOptions =
         const cffUi = computeCffUiOut_strict(rawV1);
         const cff8 = computeCFF8_strict(rawV1);
         const coreAxes: any = {
-          AAS: cff8.AAS, CTF: cff8.CTF, RMD: cff8.RMD, RDX: cff8.RDX, EDS: cff8.EDS, IFD: cff8.IFD, KPF: null, TPS: null,
+          AAS: cff8.AAS,
+          CTF: cff8.CTF,
+          RMD: cff8.RMD,
+          RDX: cff8.RDX,
+          EDS: cff8.EDS,
+          IFD: cff8.IFD,
+          KPF: rawV1?.kpf_sim == null ? null : clamp01(Number(rawV1.kpf_sim)),
+          TPS: rawV1?.tps_h == null ? null : clamp01(Number(rawV1.tps_h)),
         };
         coreAxes.Analyticity = avg(coreAxes.AAS, coreAxes.EDS);
         coreAxes.Flow = avg(coreAxes.CTF, coreAxes.RMD);
         coreAxes.MetacogRaw = avg(coreAxes.RDX, coreAxes.IFD);
         const cffPatternObj = computeCffPatternOut(coreAxes);
-        const baseCffFinalObj = computeFinalDeterminationCff({ indicators: {
-          'AAS': { score: coreAxes.AAS, status: 'Active' }, 'CTF': { score: coreAxes.CTF, status: 'Active' }, 'RMD': { score: coreAxes.RMD, status: 'Active' }, 'RDX': { score: coreAxes.RDX, status: 'Active' },
-          'EDS': { score: coreAxes.EDS, status: 'Active' }, 'IFD': { score: coreAxes.IFD, status: 'Active' }, 'KPF-Sim': { score: null, status: 'Excluded' }, 'TPS-H': { score: null, status: 'Excluded' },
+        const cffFinalObj = computeFinalDeterminationCff({ indicators: {
+          'AAS': { score: coreAxes.AAS, status: 'Active' },
+          'CTF': { score: coreAxes.CTF, status: 'Active' },
+          'RMD': { score: coreAxes.RMD, status: 'Active' },
+          'RDX': { score: coreAxes.RDX, status: 'Active' },
+          'EDS': { score: coreAxes.EDS, status: 'Active' },
+          'IFD': { score: coreAxes.IFD, status: 'Active' },
+          'KPF-Sim': { score: coreAxes.KPF, status: rawV1?.kpf_sim == null ? 'Missing' : 'Active' },
+          'TPS-H': { score: coreAxes.TPS, status: rawV1?.tps_h == null ? 'Missing' : 'Active' },
         } });
-        const cffFinalObj = String(baseCffFinalObj?.cff?.final_type?.label ?? '') === 'Insufficient data'
-          ? makeAmodeCffFinalFromCore(coreAxes, cffPatternObj)
-          : baseCffFinalObj;
         return { status: 'ok', cffUi, cff8, coreAxes, cffPatternObj, cffFinalObj };
       })()
     : makeInsufficientCff('CFF requires finite 6-axis evaluation inputs only. KPF/TPS are excluded in MVP A-mode.');
 
   const { cfv, rcStructural } = deriveStrictCfv(raw, (cffResult as any)?.cff8 ?? null);
-  const rcModel = opts?.rcLogisticModel;
+  const rcSummary = computeRCFromRaw({
+    layer_0: raw?.layer_0 ?? {},
+    layer_1: raw?.layer_1 ?? {},
+    layer_2: raw?.layer_2 ?? {},
+    layer_3: raw?.layer_3 ?? {},
+  });
+  const rcModel = opts?.rcLogisticModel ?? DEFAULT_RC_MODEL_BACKENDB;
   const activeIds = asSet(opts?.activeSignalIds);
   const rcResult = ((cffResult as any)?.status === 'ok')
     ? (() => {
-        if (hasRequiredRcInputs(cfv, rcModel)) {
-          const pH = computePHumanFromCFV(cfv as CFV, rcModel as any);
-          const pA = clamp01(1 - pH);
-          const d = normalize3(pH, pA / 2, pA / 2);
-          const distribution = { Human: pct(d.a), Hybrid: pct(d.b), AI: pct(d.c) };
-          const finalDetermination = determineLabelFromProbs(cfv as CFV, pH);
-          const rcSummary = makeRcSummaryStrict(finalDetermination, distribution);
-          const rcObserved: ObservedSignalsRcJson = activeIds.size === 0 ? { rc: { observed_structural_signals: { '1': '', '2': '', '3': '', '4': '' } } } : toRcJson(selectObservedSignals(activeIds, String(rcSummary?.rc?.reliability_band ?? 'MEDIUM') as any, {}));
-          return { status: 'ok', rcSummary, rcObserved, rcDist: { rc: { reasoning_control_distribution: { ...distribution, final_determination: finalDetermination, determination_sentence: getDeterminationSentence(finalDetermination) } } }, cfv };
+        const rcDist: any = !rcModel
+          ? {
+              rc: {
+                reasoning_control_distribution: {
+                  Human: "N/A",
+                  Hybrid: "N/A",
+                  AI: "N/A",
+                  final_determination: "Insufficient data",
+                  determination_sentence: "RC distribution was not computed because rcLogisticModel was missing.",
+                },
+              },
+            }
+          : (() => {
+              const pH = computePHumanFromCFV(cfv as CFV, rcModel as any);
+              const pA = clamp01(1 - pH);
+              const d = normalize3(pH, pA / 2, pA / 2);
+              return {
+                rc: {
+                  reasoning_control_distribution: {
+                    Human: pct(d.a),
+                    Hybrid: pct(d.b),
+                    AI: pct(d.c),
+                    final_determination: determineLabelFromProbs(cfv as CFV, pH),
+                    determination_sentence: getDeterminationSentence(determineLabelFromProbs(cfv as CFV, pH)),
+                  },
+                },
+              };
+            })();
+        let rcObserved: ObservedSignalsRcJson;
+        if (activeIds.size === 0) {
+          rcObserved = { rc: { observed_structural_signals: { "1": "", "2": "", "3": "", "4": "" } } };
+        } else {
+          const band = String(rcSummary?.rc?.reliability_band ?? "MEDIUM") as any;
+          const selected = selectObservedSignals(activeIds, band, {});
+          rcObserved = toRcJson(selected);
         }
-        return makeRcDeterministicFallback(cfv, rcStructural, activeIds);
+        return { status: 'ok', rcSummary, rcObserved, rcDist, cfv };
       })()
-    : makeRcDeterministicFallback(cfv, rcStructural, activeIds);
+    : makeInsufficientRc('RC was not computed because CFF core axes were unavailable.');
 
   const arcLevelNum = (() => {
     const code = String((rslResult as any)?.rslLevelObj?.rsl?.level?.short_name ?? '');
