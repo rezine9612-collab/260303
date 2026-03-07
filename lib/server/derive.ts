@@ -2015,8 +2015,21 @@ export function computeFinalDeterminationCff(cff: any): CffOut {
     TPS: { value_0to1: cff.indicators["TPS-H"]?.score ?? null, status: ((cff.indicators["TPS-H"]?.status === "Excluded" ? "Excluded" : cff.indicators["TPS-H"]?.status) as any) ?? "Missing" },
   } });
   const label = fdLabel(det.code);
-  const r = det.rationale;
-  const interpretation = `${label}. Human score=${round2(r.human_score_0to1)}, AI score=${round2(r.ai_score_0to1)}, Hybrid score=${round2(r.hybrid_score_0to1)}. Missing: ${r.missing.join(', ') || 'none'}. Excluded: ${r.excluded.join(', ') || 'none'}.`;
+  let interpretation = label;
+  if (det.code === "T1") interpretation = "Reasoning is organized around explicit structure, evidence use, and stepwise evaluation.";
+  else if (det.code === "T2") interpretation = "Reasoning shows reflective monitoring, with attention to control, revision, and internal consistency.";
+  else if (det.code === "T3") interpretation = "Reasoning advances through exploratory association and conceptual movement more than through rigid stepwise argument.";
+  else if (det.code === "T4") interpretation = "Reasoning integrates multiple strands into a coordinated direction and broader strategic frame.";
+  else if (det.code === "T5") interpretation = "Reasoning emphasizes human expression, contextual meaning, and communicative resonance.";
+  else if (det.code === "T6") interpretation = "Reasoning is dominated by machine-like continuation patterns rather than human-led structural control.";
+  else if (det.code === "Hx-1") interpretation = "The profile suggests a human-led draft-assist pattern, with human control retained over the main reasoning path.";
+  else if (det.code === "Hx-2") interpretation = "The profile suggests a human-led structure-assist pattern, with external support shaping organization more than content.";
+  else if (det.code === "Hx-3") interpretation = "The profile suggests a human-led evidence-assist pattern, with external support concentrated on supporting material.";
+  else if (det.code === "Hx-4") interpretation = "The profile suggests a human-led reasoning-assist pattern, with external support affecting logical progression.";
+  else if (det.code === "Ax-1") interpretation = "Reasoning is dominated by template-like continuation with limited evidence of human-led structural control.";
+  else if (det.code === "Ax-2") interpretation = "Reasoning is dominated by synthesized evidence patterning rather than human-led structural development.";
+  else if (det.code === "Ax-3") interpretation = "Reasoning is dominated by stylistic emulation patterns rather than human-led structural control.";
+  else if (det.code === "Ax-4") interpretation = "Reasoning is dominated by simulated reasoning patterns with limited human-led structural control.";
   return { cff: { final_type: { label, type_code: det.code, chip_label: label, confidence: round2(det.confidence_0to1), interpretation } } };
 }
 /* ===== Backend_11_Structural Control Signals.ts ===== */
@@ -6168,7 +6181,7 @@ function deriveAllStrictCompute(input: GptBackendInput, opts: DeriveAllOptions =
   const inputText = safeStr((g as any)?.input_text ?? (g as any)?.text ?? (g as any)?.submitted_text ?? (g as any)?.essay_text ?? '');
   const rawV1 = pickRawFeaturesV1(raw);
   const usingDefaultRoleConfigs = !(Array.isArray(opts?.roleConfigs) && opts.roleConfigs.length > 0);
-  const roleConfigs = usingDefaultRoleConfigs ? DEFAULT_ROLE_CONFIGS_MINIMAL : opts!.roleConfigs!;
+  const roleConfigs = Array.isArray(opts?.roleConfigs) && opts!.roleConfigs!.length > 0 ? opts!.roleConfigs! : [];
 
   const rslResult = computeRSLStrict(raw, undefined, (g?.raw_signals_quotes ?? raw?.raw_signals_quotes ?? null), opts?.cohortFriList);
 
@@ -6294,7 +6307,7 @@ function deriveAllStrictCompute(input: GptBackendInput, opts: DeriveAllOptions =
             ? computeRfsJobGroupTop3(
                 { axes, arc_level: arcLevelNum },
                 roleConfigs,
-                usingDefaultRoleConfigs ? { strictMinFilter: false } : undefined
+                undefined
               )
             : { rfs: { summary_lines: [], top_groups: [], recommended_roles_top3: [], recommended_roles_line: "", pattern_interpretation: "" } };
 
