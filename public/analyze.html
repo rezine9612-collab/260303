@@ -61,31 +61,29 @@
       justify-content:center;
     }
 
+    html.npHome-scope .npSpinner,
+    html.npHome-scope .npCheck{
+      width:24px;
+      height:24px;
+      display:block;
+      flex:0 0 auto;
+    }
+
     html.npHome-scope .npSpinner{
-      width:22px;
-      height:22px;
-      border:3px solid rgba(17,24,39,.16);
-      border-top-color:#111827;
-      border-radius:50%;
-      animation: npSpin .7s linear infinite;
+      animation: npSpin .8s linear infinite;
     }
 
     html.npHome-scope .npCheck{
-      width:28px;
-      height:28px;
-      border-radius:999px;
-      background:#000;
-      color:#fff;
       display:none;
-      align-items:center;
-      justify-content:center;
-      font-size:18px;
-      font-weight:700;
-      line-height:1;
+      opacity:0;
+      transform:scale(.92);
     }
 
     html.npHome-scope .npOverlay.isSuccess .npSpinner{ display:none; }
-    html.npHome-scope .npOverlay.isSuccess .npCheck{ display:flex; }
+    html.npHome-scope .npOverlay.isSuccess .npCheck{
+      display:block;
+      animation: npFadeIn .22s ease forwards;
+    }
 
     html.npHome-scope .npOverlayTitle{
       margin:0;
@@ -94,10 +92,24 @@
       font-weight:600;
       letter-spacing:-0.02em;
       color:#0b1220;
+      min-height:28px;
+      transition:opacity .16s ease, transform .16s ease;
+    }
+
+    html.npHome-scope .npOverlayTitle.isChanging{
+      opacity:0;
+      transform:translateY(2px);
     }
 
     @keyframes npSpin{
       to{ transform: rotate(360deg); }
+    }
+
+    @keyframes npFadeIn{
+      to{
+        opacity:1;
+        transform:scale(1);
+      }
     }
 
   </style> 
@@ -494,7 +506,7 @@
 
           <div class="brand">
             <!-- (1) 로고: 위->아래 -->
-            <img class="brandLogo npHome-enterY" id="brandLogo" src="./public/images/neuprint_logo.svg" alt="NeuPrint Logo" />
+            <img class="brandLogo npHome-enterY" id="brandLogo" src="/images/neuprint_logo.svg" alt="NeuPrint Logo" />
 
             <!-- (1) 태그라인: 위->아래 -->
             <div class="brandline npHome-enterY" id="brandline">
@@ -566,8 +578,21 @@
   <div id="npStatusOverlay" class="npOverlay" aria-hidden="true" role="status" aria-live="polite">
     <div class="npOverlayCard">
       <div class="npOverlayIconWrap" aria-hidden="true">
-        <div class="npSpinner"></div>
-        <div class="npCheck">✓</div>
+        <svg class="npSpinner" viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="12" r="10"
+            stroke="#111827"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-dasharray="60"
+            stroke-dashoffset="20"/>
+        </svg>
+        <svg class="npCheck" viewBox="0 0 24 24" fill="none">
+          <path d="M5 13L9 17L19 7"
+            stroke="#111827"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"/>
+        </svg>
       </div>
       <p id="npStatusTitle" class="npOverlayTitle">Analyzing</p>
     </div>
@@ -589,15 +614,54 @@
 
     let sampleSelected = false;
     let isSubmitting = false;
+    let stageTimerIds = [];
 
-    function setOverlayState(state){
+    function clearStageTimers(){
+      stageTimerIds.forEach(id => clearTimeout(id));
+      stageTimerIds = [];
+    }
+
+    function setOverlayText(nextText){
+      if(!statusTitle) return;
+      statusTitle.classList.add("isChanging");
+      window.setTimeout(()=>{
+        statusTitle.textContent = nextText;
+        statusTitle.classList.remove("isChanging");
+      }, 140);
+    }
+
+    function setOverlayState(state, titleText){
       if(!statusOverlay || !statusTitle) return;
       const isVisible = state === "loading" || state === "success";
       statusOverlay.classList.toggle("isVisible", isVisible);
       statusOverlay.classList.toggle("isSuccess", state === "success");
       statusOverlay.setAttribute("aria-hidden", isVisible ? "false" : "true");
-      if(state === "loading") statusTitle.textContent = "Analyzing";
-      if(state === "success") statusTitle.textContent = "Analysis Complete";
+
+      if(!isVisible){
+        clearStageTimers();
+        statusTitle.classList.remove("isChanging");
+        statusTitle.textContent = "Analyzing";
+        return;
+      }
+
+      if(titleText){
+        setOverlayText(titleText);
+      }else if(state === "loading"){
+        setOverlayText("Analyzing");
+      }else if(state === "success"){
+        setOverlayText("Analyzed");
+      }
+    }
+
+    function startOverlayStages(){
+      clearStageTimers();
+      setOverlayState("loading", "Analyzing");
+      stageTimerIds.push(window.setTimeout(()=>{
+        if(isSubmitting) setOverlayState("loading", "Extracting Signals");
+      }, 700));
+      stageTimerIds.push(window.setTimeout(()=>{
+        if(isSubmitting) setOverlayState("loading", "Computing Metrics");
+      }, 1500));
     }
 
     function setActiveSample(btn){
@@ -691,7 +755,7 @@
       isSubmitting = true;
       cta.disabled = true;
       cta.style.opacity = "0.7";
-      setOverlayState("loading");
+      startOverlayStages();
       try{
         const res = await fetch("/api/analyze", {
           method: "POST",
@@ -712,9 +776,11 @@
         try{ localStorage.setItem("np_report_json", reportRaw); }catch(_e){ }
         try{ window.name = "NP_REPORT:"+reportRaw; }catch(_e){ }
 
-        setOverlayState("success");
+        clearStageTimers();
+        setOverlayState("success", "Analyzed");
         setTimeout(()=>{ window.location.href = "/report"; }, 700);
       }catch(e){
+        clearStageTimers();
         setOverlayState(null);
         alert("Failed to analyze. Check network and API key.");
       }finally{
