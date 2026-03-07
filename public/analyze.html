@@ -54,7 +54,7 @@
       align-items:center;
       justify-content:center;
       text-align:center;
-      gap:16px;
+      gap:0;
     }
 
     html.npHome-scope .npOverlayIconWrap{
@@ -63,6 +63,9 @@
       display:flex;
       align-items:center;
       justify-content:center;
+    
+      margin-bottom:10px;
+      transform: translateY(-6px);
     }
 
     html.npHome-scope .npSpinner,
@@ -97,12 +100,13 @@
       font-weight: 500;
       color:#0b1220;
       min-height:28px;
-      transition:opacity .16s ease, transform .16s ease;
+      transition:opacity .22s ease, transform .22s ease;
+      transform:translateY(0);
     }
 
     html.npHome-scope .npOverlayTitle.isChanging{
       opacity:0;
-      transform:translateY(2px);
+      transform:translateY(8px);
     }
 
     @keyframes npSpin{
@@ -116,6 +120,21 @@
       }
     }
 
+    @keyframes npOverlayRise{
+      from{
+        opacity:0;
+        transform:translateY(10px);
+      }
+      to{
+        opacity:1;
+        transform:translateY(0);
+      }
+    }
+
+    html.npHome-scope .npOverlay.isVisible .npOverlayCard{
+      animation: npOverlayRise .28s cubic-bezier(.16,1,.3,1);
+    }
+
   
 /* NeuPrint loading layout refinement */
 html.npHome-scope .npOverlay{
@@ -125,59 +144,29 @@ html.npHome-scope .npOverlay{
 }
 
 html.npHome-scope .npOverlayCard{
+  position:relative;
+  width:auto;
+  height:auto;
   display:flex;
   flex-direction:column;
   align-items:center;
   justify-content:center;
   text-align:center;
-  gap:10px;
-}
-
-html.npHome-scope .npOverlayIconWrap{
-  order:1;
 }
 
 html.npHome-scope .npOverlayTitle{
-  order:2;
-}
-
-
-html.npHome-scope .npCheck path{
-  stroke-dasharray: 24;
-  stroke-dashoffset: 24;
-}
-html.npHome-scope .npOverlay.isSuccess .npCheck path{
-  animation: npDrawCheck .34s ease forwards;
-}
-@keyframes npDrawCheck{
-  to{
-    stroke-dashoffset: 0;
-  }
-}
-
-
-
-/* Center text exactly, icon above */
-html.npHome-scope .npOverlayCard{
-  position:relative;
-  width:100%;
-  height:100vh;
-}
-
-html.npHome-scope .npOverlayTitle{
-  position:absolute;
-  top:50%;
-  left:50%;
-  transform:translate(-50%,-50%);
+  position:static;
+  left:auto;
+  top:auto;
+  transform:translateY(0);
   font-size:24px;
   font-weight:600;
 }
 
 html.npHome-scope .npOverlayIconWrap{
-  position:absolute;
-  left:50%;
-  top:calc(50% - 42px);
-  transform:translateX(-50%);
+  position:static;
+  left:auto;
+  top:auto;
 }
  
 
@@ -523,7 +512,7 @@ html.npHome-scope .npOverlayIconWrap{
       display:inline-flex;
       align-items:center;
       justify-content:center;
-      transform:translateX(0);
+      transform:translateY(0);
       transition:transform .50s ease;
     }
 
@@ -727,6 +716,7 @@ html.npHome-scope .npOverlayIconWrap{
     let sampleSelected = false;
     let isSubmitting = false;
     let stageTimerIds = [];
+    let successRedirectTimer = null;
 
 
     function syncMirrorSize(){
@@ -801,6 +791,7 @@ html.npHome-scope .npOverlayIconWrap{
 
       if(!isVisible){
         clearStageTimers();
+        if(successRedirectTimer){ clearTimeout(successRedirectTimer); successRedirectTimer = null; }
         statusTitle.classList.remove("isChanging");
         statusTitle.textContent = "Analyzing";
         return;
@@ -974,7 +965,17 @@ html.npHome-scope .npOverlayIconWrap{
 
         clearStageTimers();
         setOverlayState("success", "Analyzed");
-        setTimeout(()=>{ window.location.href = "/report"; }, 700);
+
+        const goReport = () => {
+          try{
+            window.location.assign("/report");
+          }catch(_e){
+            window.location.href = "/report";
+          }
+        };
+
+        if(successRedirectTimer){ clearTimeout(successRedirectTimer); }
+        successRedirectTimer = window.setTimeout(goReport, 800);
       }catch(e){
         clearStageTimers();
         setOverlayState(null);
