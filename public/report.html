@@ -73,7 +73,7 @@ html.npReport-scope {
   min-height: 100svh;
   overflow-y: scroll;
   opacity: 0;
-  animation: npReportPageFadeIn 0.45s ease forwards;
+  animation: npReportPageFadeIn 1s ease forwards;
 }
 @keyframes npReportPageFadeIn {
   to {
@@ -1125,6 +1125,21 @@ html.npReport-scope {
 #npReportRoot .inputPreviewStats .statLabel {
   color: rgba(11,18,32,.60);
   font-weight: 500;
+}
+
+
+/* NeuPrint report page smooth fade-in */
+body{
+  opacity:0;
+  transform: translateY(6px);
+  animation: reportFade 0.38s ease forwards;
+}
+
+@keyframes reportFade{
+  to{
+    opacity:1;
+    transform: translateY(0);
+  }
 }
 
 </style>
