@@ -5975,9 +5975,12 @@ function computeRSLStrict(raw: any, dimensions: RSLDimension[] | undefined, rawS
     R8: basis.R8,
     raw_signals_quotes: rawSignalsQuotes ?? null,
   });
-  const rslCohortObj = Array.isArray(cohortFriList) && cohortFriList.length > 0
-    ? computeRslCohortResponse(friScore, cohortFriList)
-    : { rsl: { cohort: { percentile_0to1: 0, top_percent_label: 'Unavailable', interpretation: 'Cohort comparison unavailable because cohortFriList was not provided.' } } };
+  const rslCohortObj = computeRslCohortResponse(
+    friScore,
+    Array.isArray(cohortFriList) && cohortFriList.length > 0
+      ? cohortFriList
+      : DEFAULT_COHORT_FRI_LIST_BACKENDB
+  );
   const rslSriObj = deriveRslSriFromRaw(raw ?? {});
   const rslAxes = deriveRfsAxesFromBasis(basis);
   const summary = {
