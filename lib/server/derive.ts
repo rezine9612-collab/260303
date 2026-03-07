@@ -3481,6 +3481,77 @@ export function toRcJson(result: SelectObservedSignalsResult): ObservedSignalsRc
 }
 
 
+/**
+ * Derive active observed-structural-signal IDs (S1..S18) from already-computed
+ * raw feature counts and structural control indicators.
+ * This only activates templates whose prerequisite evidence is present.
+ */
+export function inferObservedSignalIdsFromEvidence(args: {
+  raw?: any;
+  indicators?: Partial<AgencyIndicators> | null;
+  evidenceTypesCount?: number;
+}): Set<string> {
+  const raw = args?.raw ?? {};
+  const ind = args?.indicators ?? {};
+  const ids = new Set<string>();
+
+  const claims = Math.max(0, safeNum(raw?.layer_0?.claims, 0));
+  const reasons = Math.max(0, safeNum(raw?.layer_0?.reasons, 0));
+  const evidence = Math.max(0, safeNum(raw?.layer_0?.evidence, 0));
+
+  const subClaims = Math.max(0, safeNum(raw?.layer_1?.sub_claims, 0));
+  const warrants = Math.max(0, safeNum(raw?.layer_1?.warrants, 0));
+  const counterpoints = Math.max(0, safeNum(raw?.layer_1?.counterpoints, 0));
+  const refutations = Math.max(0, safeNum(raw?.layer_1?.refutations, 0));
+
+  const transitions = Math.max(0, safeNum(raw?.layer_2?.transitions, 0));
+  const transitionOk = Math.max(0, safeNum(raw?.layer_2?.transition_ok, 0));
+  const revisions = Math.max(0, safeNum(raw?.layer_2?.revisions, 0));
+  const revisionDepthSum = Math.max(0, safeNum(raw?.layer_2?.revision_depth_sum, 0));
+  const beliefChange = !!raw?.layer_2?.belief_change;
+
+  const loops = Math.max(0, safeNum(raw?.layer_3?.loops, 0));
+
+  const evidenceTypesCount =
+    typeof args?.evidenceTypesCount === "number"
+      ? Math.max(0, Math.floor(args.evidenceTypesCount))
+      : (raw?.evidence_types && typeof raw.evidence_types === "object"
+          ? Object.values(raw.evidence_types).filter((v: any) => safeNum(v, 0) > 0).length
+          : 0);
+
+  const structuralVariance = clamp01(safeNum((ind as any)?.structural_variance, 0));
+  const humanRhythm = clamp01(safeNum((ind as any)?.human_rhythm_index, 0));
+  const transitionFlow = clamp01(safeNum((ind as any)?.transition_flow, 0));
+  const revisionDepth = clamp01(safeNum((ind as any)?.revision_depth, 0));
+
+  if (revisions > 0) ids.add("S1");
+  if (revisions > 0 && revisionDepthSum > 0) ids.add("S2");
+  if (revisions > 0 && (subClaims > 0 || warrants > 0)) ids.add("S3");
+  if (beliefChange) ids.add("S4");
+
+  if (transitionOk > 0) ids.add("S5");
+  if (transitions > 0 && reasons > 0) ids.add("S6");
+  if (transitions >= 2 && transitionOk > 0) ids.add("S7");
+
+  if (counterpoints > 0) ids.add("S8");
+  if (refutations > 0) ids.add("S9");
+  if (evidence > 0 && (counterpoints > 0 || refutations > 0)) ids.add("S10");
+
+  if (evidenceTypesCount >= 2) ids.add("S11");
+  if (evidence > 0 && claims > 0) ids.add("S12");
+  if (evidence > 0) ids.add("S13");
+
+  if (loops === 0) ids.add("S14");
+  if (loops === 0 && structuralVariance >= 0.15) ids.add("S15");
+  if (loops === 0 && transitionFlow >= 0.15) ids.add("S16");
+
+  if (structuralVariance >= 0.10 || humanRhythm >= 0.10) ids.add("S17");
+  if (structuralVariance >= 0.10 || transitionFlow >= 0.10 || revisionDepth >= 0.10) ids.add("S18");
+
+  return ids;
+}
+
+
 
 /* ===== Backend_12_Cognitive Style Summary.ts ===== */
 
@@ -6138,7 +6209,16 @@ function deriveAllStrictCompute(input: GptBackendInput, opts: DeriveAllOptions =
     layer_3: raw?.layer_3 ?? {},
   });
   const rcModel = opts?.rcLogisticModel ?? DEFAULT_RC_MODEL_BACKENDB;
-  const activeIds = asSet(opts?.activeSignalIds);
+  const activeIdsProvided = asSet(opts?.activeSignalIds);
+  const activeIds = activeIdsProvided.size > 0
+    ? activeIdsProvided
+    : inferObservedSignalIdsFromEvidence({
+        raw,
+        indicators: (((rcStructural as any)?.rc?.structural_control_signals ?? {}) as AgencyIndicators),
+        evidenceTypesCount: raw?.evidence_types && typeof raw.evidence_types === 'object'
+          ? Object.values(raw.evidence_types).filter((v: any) => safeNum(v, 0) > 0).length
+          : 0,
+      });
   const rcResult = ((cffResult as any)?.status === 'ok')
     ? (() => {
         const rcDist: any = !rcModel
