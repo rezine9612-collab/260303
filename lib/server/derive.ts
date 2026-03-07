@@ -2030,7 +2030,8 @@ export function computeFinalDeterminationCff(cff: any): CffOut {
     TPS: { value_0to1: cff.indicators["TPS-H"]?.score ?? null, status: ((cff.indicators["TPS-H"]?.status === "Excluded" ? "Excluded" : cff.indicators["TPS-H"]?.status) as any) ?? "Missing" },
   } });
   const label = fdLabel(det.code);
-  let interpretation = label;
+  const chip_label = label.includes(". ") ? label.split(". ").slice(1).join(". ") : label;
+  let interpretation = chip_label + " reflects the dominant reasoning pattern inferred from the current indicator configuration.";
   if (det.code === "T1") interpretation = "Reasoning is organized around explicit structure, evidence use, and stepwise evaluation.";
   else if (det.code === "T2") interpretation = "Reasoning shows reflective monitoring, with attention to control, revision, and internal consistency.";
   else if (det.code === "T3") interpretation = "Reasoning advances through exploratory association and conceptual movement more than through rigid stepwise argument.";
@@ -2045,7 +2046,7 @@ export function computeFinalDeterminationCff(cff: any): CffOut {
   else if (det.code === "Ax-2") interpretation = "Reasoning is dominated by synthesized evidence patterning rather than human-led structural development.";
   else if (det.code === "Ax-3") interpretation = "Reasoning is dominated by stylistic emulation patterns rather than human-led structural control.";
   else if (det.code === "Ax-4") interpretation = "Reasoning is dominated by simulated reasoning patterns with limited human-led structural control.";
-  return { cff: { final_type: { label, type_code: det.code, chip_label: label, confidence: round2(det.confidence_0to1), interpretation } } };
+  return { cff: { final_type: { label, type_code: det.code, chip_label, confidence: round2(det.confidence_0to1), interpretation } } };
 }
 /* ===== Backend_11_Structural Control Signals.ts ===== */
 
@@ -6195,11 +6196,10 @@ function deriveAllStrictCompute(input: GptBackendInput, opts: DeriveAllOptions =
   const raw: any = (g as any)?.raw_features ?? (g as any)?.raw ?? (g as any)?.rawFeatures ?? (g as any) ?? {};
   const inputText = safeStr((g as any)?.input_text ?? (g as any)?.text ?? (g as any)?.submitted_text ?? (g as any)?.essay_text ?? '');
   const rawV1 = pickRawFeaturesV1(raw);
-  const usingDefaultRoleConfigs = !(Array.isArray(opts?.roleConfigs) && opts.roleConfigs.length > 0);
   const roleConfigs =
     Array.isArray(opts?.roleConfigs) && opts!.roleConfigs!.length > 0
       ? opts!.roleConfigs!
-      : DEFAULT_ROLE_CONFIGS_MINIMAL;
+      : [];
 
   const rslResult = computeRSLStrict(raw, undefined, (g?.raw_signals_quotes ?? raw?.raw_signals_quotes ?? null), opts?.cohortFriList);
 
@@ -6321,12 +6321,12 @@ function deriveAllStrictCompute(input: GptBackendInput, opts: DeriveAllOptions =
             },
           });
 
-          const usingProvidedRoleConfigs = Array.isArray(opts?.roleConfigs) && opts!.roleConfigs!.length > 0;
-          const rfsJob = computeRfsJobGroupTop3(
-            { axes, arc_level: arcLevelNum },
-            roleConfigs,
-            usingProvidedRoleConfigs ? undefined : { strictMinFilter: false }
-          );
+          const rfsJob = roleConfigs.length > 0
+            ? computeRfsJobGroupTop3(
+                { axes, arc_level: arcLevelNum },
+                roleConfigs
+              )
+            : { rfs: { top_groups: [], summary_lines: [], recommended_roles_top3: [], recommended_roles_line: "", pattern_interpretation: "" } };
 
           return { status: 'ok', rfsStyle, rfsJob };
         } catch (err: any) {
